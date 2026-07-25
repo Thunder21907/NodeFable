@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Story Game</title>
+<link rel="stylesheet" href="template_styles.css">
+</head>
+<body>
+<div id="app">
+    <aside id="side-panel">
+        <div id="nav-row">
+            <button id="nav-back" onclick="game.goBack()" disabled><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 10L8 14L6 14L-2.62268e-07 8L6 2L8 2L8 6L16 6L16 10L8 10Z"/></svg></button>
+            <button id="nav-forward" onclick="game.goForward()" disabled><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 6L8 2L10 2L16 8L10 14L8 14L8 10L-1.74845e-07 10L-3.01991e-07 6L8 6Z"/></svg></button>
+        </div>
+        <div id="side-panel-content"></div>
+        <button id="new-game-btn" onclick="game.newGame()">New Game</button>
+        <button id="save-load-btn" onclick="game.showSaveLoad()">Save / Load</button>
+    </aside>
+    <main id="main-panel">
+        <div id="main-scroll">
+            <div id="passage-content"></div>
+        </div>
+    </main>
+
+    <div id="save-load-overlay" style="display:none;">
+        <div id="save-load-modal">
+            <h3>Save / Load Game</h3>
+            <div id="save-slots"></div>
+            <button id="save-load-close" onclick="game.hideSaveLoad()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// __STORY_DATA_PLACEHOLDER__
+
+const game = {
+    state: {},
+    currentNodeId: null,
+    nodes: {},
+    startNode: null,
+    sidePanelNodeId: null,
+
+    init(data) {
+        this.projectName = data.name;
+        this.state = { ...data.variables };
+        this.state._visited = {};
+        this._originalVars = { ...data.variables };
+        this._history = [];
+        this._historyIndex = -1;
+        for (const n of data.nodes) {
+            this.nodes[n.id] = n;
+            if (n.id === 'side_panel') this.sidePanelNodeId = n.id;
+        }
+
+        const nodeIds = Object.keys(this.nodes);
+        const mainNodeIds = nodeIds.filter(id => id !== 'side_panel');
+        const explicitStart = mainNodeIds.find(id => this.nodes[id].is_start === true);
+        this.startNode = explicitStart || (mainNodeIds.length > 0 ? mainNodeIds[0] : (nodeIds.length > 0 ? nodeIds[0] : null));
+
+        document.getElementById('app').addEventListener('click', (e) => {
+            let link = e.target.closest('a[data-node]');
+            if (link) {
+                e.preventDefault();
+                if (!link.classList.contains('disabled')) this.navigateTo(link.dataset.node);
+                return;
+            }
+            link = e.target.closest('a[data-action]');
+            if (link) {
+                e.preventDefault();
+                if (!link.classList.contains('disabled')) this.applyAction(link.dataset.action);
+            }
+        });
+
+        document.getElementById('save-load-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) this.hideSaveLoad();
+        });
+
+        if (this.loadGame()) { this.updateNavButtons(); return; }
+
+        this.renderSidePanel();
+        if (this.startNode) {
+            this._history = [this.startNode];
+            this._historyIndex = 0;
+            this.render(this.startNode);
+        } else {
+            document.getElementById('passage-content').textContent = 'No story content.';
+        }
+        this.updateNavButtons();
+    },
+
+    navigateTo(slug) {
+        const node = this.currentNodeId ? this.nodes[this.currentNodeId] : null;
+        const choice = node ? (node.choices || []).find(c => c.target_node_id === slug) : null;
+
+        if (choice && choice.prerequisite) {
+            try {
+                if (!new Function('state', 'try { return ' + choice.prerequisite + '; } catch(e) { return false; }')(this.state)) return;
+            } catch { return; }
+        }
+        const before = this.snapshotState();
+        if (choice && choice.mutation) {
+            try {
+                new Function('state', 'notify', choice.mutation)(this.state, (msg) => this.notify(msg));
+            } catch {}
+        }
+        if (this.nodes[slug]) this.render(slug);
+        if (this._historyIndex < this._history.length - 1) {
+            this._history = this._history.slice(0, this._historyIndex + 1);
+        }
+        this._historyIndex++;
+        this._history[this._historyIndex] = this.currentNodeId;
+        this.detectChanges(before);
+        this.updateNavButtons();
+        this.autoSave();
+    },
+
+    applyAction(actionId) {
+        const node = this.currentNodeId ? this.nodes[this.currentNodeId] : null;
+        let action = node ? (node.actions || []).find(a => a.id === actionId) : null;
+        if (!action && this.sidePanelNodeId) {
+            const sideNode = this.nodes[this.sidePanelNodeId];
+            action = sideNode ? (sideNode.actions || []).find(a => a.id === actionId) : null;
+        }
+        if (!action) return;
+
+        const before = this.snapshotState();
+        for (const pair of action.pairs || []) {
+            let met = true;
+            if (pair.condition) {
+                try {
+                    met = !!new Function('state', 'try { return ' + pair.condition + '; } catch(e) { return false; }')(this.state);
+                } catch { met = false; }
+            }
+            if (met) {
+                try {
+                    new Function('state', 'notify', pair.mutation)(this.state, (msg) => this.notify(msg));
+                } catch (e) {
+                    console.warn('Mutation failed:', e);
+                }
+            }
+        }
+        this.detectChanges(before);
+        if (this.currentNodeId) this.render(this.currentNodeId);
+        this.autoSave();
+    },
+
+    renderSidePanel() {
+        const el = document.getElementById('side-panel-content');
+        if (this.sidePanelNodeId && this.nodes[this.sidePanelNodeId]) {
+            const sideNode = this.nodes[this.sidePanelNodeId];
+            el.innerHTML = this.renderContent(this._preprocessText(sideNode.text || ''), sideNode.choices || [], sideNode.actions || []);
+        } else {
+            el.innerHTML = '';
+        }
+    },
+
+    notify(message) {
+        let toast = document.getElementById('game-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'game-toast';
+            document.getElementById('app').appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.style.display = 'block';
+        toast.style.opacity = '1';
+        clearTimeout(this._notifyTimer);
+        this._notifyTimer = setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => { toast.style.display = 'none'; }, 300);
+        }, 2500);
+    },
+
+    snapshotState() {
+        const snap = {};
+        for (const [key, val] of Object.entries(this.state)) {
+            if (typeof val === 'number' && key !== 'day') snap[key] = val;
+        }
+        return snap;
+    },
+
+    detectChanges(before) {
+        for (const [key, val] of Object.entries(this.state)) {
+            if (typeof val === 'number' && before[key] !== undefined && before[key] !== val && key !== 'day') {
+                const diff = val - before[key];
+                if (diff > 0) this.notify(this.formatKey(key) + ' +' + diff);
+                else if (diff < 0) this.notify(this.formatKey(key) + ' ' + diff);
+            }
+        }
+    },
+
+    formatKey(key) {
+        return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    },
+
+    autoSave() {
+        if (!this.projectName) return;
+        this._saveToStorage('storyeditor_autosave');
+        try {
+            localStorage.setItem('storyeditor_save', localStorage.getItem('storyeditor_autosave'));
+        } catch {}
+    },
+
+    _saveToStorage(key) {
+        try {
+            const save = {
+                projectName: this.projectName,
+                state: this.state,
+                currentNodeId: this.currentNodeId,
+                _history: this._history,
+                _historyIndex: this._historyIndex,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(key, JSON.stringify(save));
+        } catch (e) {
+            console.warn('Save failed:', e);
+        }
+    },
+
+    _loadFromStorage(key) {
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            const save = JSON.parse(raw);
+            if (save.projectName !== this.projectName) return null;
+            return save;
+        } catch {
+            return null;
+        }
+    },
+
+    loadGame() {
+        let save = this._loadFromStorage('storyeditor_autosave');
+        if (!save) save = this._loadFromStorage('storyeditor_save');
+        if (!save) return false;
+        if (!save.state || !save.currentNodeId) return false;
+        this.state = save.state;
+        // Merge missing original variables (new vars added since the save was created)
+        for (const [key, defaultVal] of Object.entries(this._originalVars || {})) {
+            if (!(key in this.state)) {
+                this.state[key] = defaultVal;
+            }
+        }
+        if (!this.state._visited) this.state._visited = {};
+        this._history = save._history || [save.currentNodeId];
+        this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
+        this.renderSidePanel();
+        if (this.nodes[save.currentNodeId]) {
+            this.render(save.currentNodeId);
+        } else if (this.startNode) {
+            this._history = [this.startNode];
+            this._historyIndex = 0;
+            this.render(this.startNode);
+        } else {
+            return false;
+        }
+        this.notify('Game restored from save.');
+        return true;
+    },
+
+    newGame() {
+        try {
+            const keys = ['storyeditor_save', 'storyeditor_autosave'];
+            for (let i = 1; i <= 5; i++) keys.push('storyeditor_save_' + i);
+            keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+        } catch {}
+        window.location.reload();
+    },
+
+    showSaveLoad() {
+        this.renderSaveSlots();
+        document.getElementById('save-load-overlay').style.display = 'flex';
+    },
+
+    hideSaveLoad() {
+        document.getElementById('save-load-overlay').style.display = 'none';
+    },
+
+    renderSaveSlots() {
+        const container = document.getElementById('save-slots');
+        const slotNames = ['Auto-save', 'Slot 1', 'Slot 2', 'Slot 3', 'Slot 4', 'Slot 5'];
+        const storageKeys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+
+        let html = '';
+        for (let i = 0; i < 6; i++) {
+            const save = this._loadFromStorage(storageKeys[i]);
+            const isOccupied = save !== null;
+            const isAuto = i === 0;
+            const nodeTitle = isOccupied && this.nodes[save.currentNodeId]
+                ? this.nodes[save.currentNodeId].title || save.currentNodeId
+                : null;
+
+            html += '<div class="save-slot">';
+            html += '  <div class="save-slot-info">';
+            html += '    <div class="save-slot-label">' + slotNames[i] + '</div>';
+            if (isOccupied) {
+                html += '    <div class="save-slot-title">' + nodeTitle + '</div>';
+                html += '    <div class="save-slot-time">' + this._formatTime(save.timestamp) + '</div>';
+            } else {
+                html += '    <div class="save-slot-empty">Empty</div>';
+            }
+            html += '  </div>';
+            html += '  <div class="save-slot-actions">';
+            html += '    <button class="save-slot-load" onclick="game.loadFromSlot(' + i + ')">Load</button>';
+            if (isOccupied && !isAuto) {
+                html += '    <button class="save-slot-delete" onclick="game.deleteSlot(' + i + ')">Delete</button>';
+            }
+            if (isAuto) {
+                html += '    <button class="save-slot-save" onclick="game.saveToSlot(' + i + ')">Save</button>';
+            } else {
+                html += '    <button class="save-slot-save" onclick="game.saveToSlot(' + i + ')">' + (isOccupied ? 'Overwrite' : 'Save') + '</button>';
+            }
+            html += '  </div>';
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    },
+
+    _formatTime(ts) {
+        const d = new Date(ts);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+    },
+
+    saveToSlot(index) {
+        if (!this.currentNodeId) { this.notify('No game in progress to save.'); return; }
+        const keys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        this._saveToStorage(keys[index]);
+        if (index === 0) {
+            try { localStorage.setItem('storyeditor_save', localStorage.getItem('storyeditor_autosave')); } catch {}
+        }
+        this.renderSaveSlots();
+        this.notify('Game saved to ' + (index === 0 ? 'Auto-save' : 'Slot ' + index) + '.');
+    },
+
+    loadFromSlot(index) {
+        const keys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        const save = this._loadFromStorage(keys[index]);
+        if (!save) { this.notify('Slot is empty.'); return; }
+        this.state = save.state;
+        // Merge missing original variables (new vars added since the save was created)
+        for (const [key, defaultVal] of Object.entries(this._originalVars || {})) {
+            if (!(key in this.state)) {
+                this.state[key] = defaultVal;
+            }
+        }
+        if (!this.state._visited) this.state._visited = {};
+        this._history = save._history || [save.currentNodeId];
+        this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
+        this.hideSaveLoad();
+        if (this.nodes[save.currentNodeId]) {
+            this.render(save.currentNodeId);
+        } else if (this.startNode) {
+            this._history = [this.startNode];
+            this._historyIndex = 0;
+            this.render(this.startNode);
+        } else {
+            return;
+        }
+        this.updateNavButtons();
+        this.notify('Game loaded from ' + (index === 0 ? 'Auto-save' : 'Slot ' + index) + '.');
+    },
+
+    deleteSlot(index) {
+        if (index === 0) return;
+        const keys = ['', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        try {
+            localStorage.removeItem(keys[index]);
+        } catch {}
+        this.renderSaveSlots();
+        this.notify('Slot ' + index + ' deleted.');
+    },
+
+    goBack() {
+        if (this._historyIndex <= 0) return;
+        this._historyIndex--;
+        const slug = this._history[this._historyIndex];
+        if (this.nodes[slug]) {
+            this.render(slug);
+            if (this.currentNodeId !== slug) {
+                this._history[this._historyIndex] = this.currentNodeId;
+            }
+        }
+        this.updateNavButtons();
+    },
+
+    goForward() {
+        if (this._historyIndex >= this._history.length - 1) return;
+        this._historyIndex++;
+        const slug = this._history[this._historyIndex];
+        if (this.nodes[slug]) {
+            this.render(slug);
+            if (this.currentNodeId !== slug) {
+                this._history[this._historyIndex] = this.currentNodeId;
+            }
+        }
+        this.updateNavButtons();
+    },
+
+    updateNavButtons() {
+        const backBtn = document.getElementById('nav-back');
+        const forwardBtn = document.getElementById('nav-forward');
+        if (backBtn) backBtn.disabled = this._historyIndex <= 0;
+        if (forwardBtn) forwardBtn.disabled = this._historyIndex >= this._history.length - 1;
+    },
+
+    _executeMutations(text) {
+        return text.replace(/\{set:([^}]+)\}/g, (_, expr) => {
+            try { new Function('state', 'notify', expr.trim())(this.state, (msg) => this.notify(msg)); }
+            catch (e) { console.warn('Mutation failed:', e); }
+            return '';
+        });
+    },
+
+    _preprocessText(text) {
+        text = this.processConditionals(text);
+        text = this._executeMutations(text);
+        text = text.replace(/\{redirect:([^}]+)\}/g, '');
+        return text;
+    },
+
+    render(nodeId) {
+        const node = this.nodes[nodeId];
+        if (!node) return;
+        this._waitTimeouts?.forEach(t => clearTimeout(t));
+        this._waitTimeouts = [];
+        this._tailElements = null;
+
+        const resolved = this.processConditionals(node.text || '');
+        const redirectSlug = this._checkRedirects(resolved);
+        if (redirectSlug) {
+            this._executeMutations(resolved);
+            this.render(redirectSlug);
+            return;
+        }
+
+        if (node.on_enter && node.on_enter.target_node_id) {
+            let shouldRedirect = true;
+            if (node.on_enter.condition) {
+                try {
+                    shouldRedirect = !!new Function('state', 'try { return ' + node.on_enter.condition + '; } catch(e) { return false; }')(this.state);
+                } catch { shouldRedirect = false; }
+            }
+            if (shouldRedirect && this.nodes[node.on_enter.target_node_id]) {
+                if (node.on_enter.mutation) {
+                    try {
+                        new Function('state', node.on_enter.mutation)(this.state);
+                    } catch {}
+                }
+                this.render(node.on_enter.target_node_id);
+                return;
+            }
+        }
+
+        this.state._visited[nodeId] = true;
+        this.currentNodeId = nodeId;
+        let text = this._executeMutations(resolved);
+        text = text.replace(/\{redirect:([^}]+)\}/g, '');
+        document.getElementById('passage-content').innerHTML = this.renderContent(text, node.choices || [], node.actions || []);
+        this.renderSidePanel();
+        this.runWaitSequences();
+    },
+
+    renderContent(text, choices, actions) {
+        choices = choices || [];
+        actions = actions || [];
+        text = text.replace(/\{random:(\d+)(?:,(\d+))?\}/g, (_, a, b) => {
+            if (b === undefined) return String(Math.floor(Math.random() * (parseInt(a) + 1)));
+            const lo = parseInt(a), hi = parseInt(b);
+            return String(lo + Math.floor(Math.random() * (hi - lo + 1)));
+        });
+        let html = text
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto">');
+
+        html = html.replace(/(<img[^>]*style=")([^"]+)(">)\s*\{img:([^}]*)\}/g, (match, before, style, after, params) => {
+            params.split(',').forEach(p => {
+                const parts = p.split('=');
+                const key = parts[0].trim();
+                const val = parts[1] ? parts[1].trim() : '';
+                if (key === 'w' && val) style += ';width:' + val + 'px';
+                if (key === 'h' && val) style += ';height:' + val + 'px';
+            });
+            return before + style + after;
+        });
+
+        html = html.replace(/\[([^\]]*)\]\(node:([^)]+)\)/g, (match, text, slug) => {
+            const choice = choices.find(c => c.target_node_id === slug);
+            let disabled = false;
+            if (choice && choice.prerequisite) {
+                try {
+                    disabled = !new Function('state', 'try { return ' + choice.prerequisite + '; } catch(e) { return false; }')(this.state);
+                } catch { disabled = true; }
+            }
+            const cls = disabled ? ' class="disabled"' : '';
+            return '<a href="#" data-node="' + slug + '"' + cls + '>' + text + '</a>';
+        });
+
+        html = html.replace(/\[([^\]]*)\]\(action:([^)]+)\)/g, (match, text, actionId) => {
+            const action = actions.find(a => a.id === actionId);
+            let disabled = true;
+            if (action && action.pairs && action.pairs.length > 0) {
+                for (const pair of action.pairs) {
+                    if (!pair.condition) { disabled = false; break; }
+                    try {
+                        if (new Function('state', 'try { return ' + pair.condition + '; } catch(e) { return false; }')(this.state)) {
+                            disabled = false; break;
+                        }
+                    } catch {}
+                }
+            }
+            const displayText = action ? action.text : text;
+            const cls = disabled ? ' class="disabled"' : '';
+            return '<a href="#" data-action="' + actionId + '"' + cls + '>' + displayText + '</a>';
+        });
+
+        html = html.replace(/\[([^\]]*)\]\([^)]+\)/g, '$1');
+
+        html = html
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+        html = html
+            .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+            .replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+        html = html.replace(/\{wait:(\d+)(?:,\s*fade:(\d+))?\}([\s\S]*?)\{endwait\}/g, (match, duration, fade, inner) => {
+            fade = fade || 500;
+            const content = inner.trim().replace(/\n/g, '<br>');
+            return '<div class="wait-sequence" data-duration="' + duration + '" data-fade="' + fade + '" style="opacity:0;transition:opacity ' + fade + 'ms ease">' + content + '</div>';
+        });
+        html = html
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/\n/g, '<br>');
+        html = html.replace(/(<div class="wait-sequence"[^>]*>[\s\S]*?<\/div>)(?:\s*(?:<br\s*\/?>)?\s*<div class="wait-sequence"[^>]*>[\s\S]*?<\/div>)*/g, (match) => {
+            const count = match.split('class="wait-sequence"').length - 1;
+            if (count >= 2) return '<div class="wait-container">' + match + '</div>';
+            return match;
+        });
+        html = html
+            .replace(/\{var:?\s*state\.(\w+)\}/g, (_, name) => {
+                const val = this.state[name];
+                return val !== undefined ? String(val) : '{var:state.' + name + '}';
+            });
+        return '<p>' + html + '</p>';
+    },
+
+    processConditionals(text) {
+        let output = '';
+        let i = 0;
+        while (i < text.length) {
+            if (text[i] === '{' && text.slice(i, i + 4) === '{if:') {
+                let condStart = i + 4;
+                if (text[condStart] === ' ') condStart++;
+                let condEnd = text.indexOf('}', condStart);
+                if (condEnd === -1) {
+                    output += text.slice(i);
+                    break;
+                }
+                let condition = text.slice(condStart, condEnd).trim();
+
+                let branches = [];
+                branches.push({ type: 'if', condition, tagEnd: condEnd + 1 });
+
+                let depth = 1;
+                let j = condEnd + 1;
+                let endifPos = -1;
+
+                while (j < text.length && depth > 0) {
+                    if (text[j] === '{') {
+                        if (text.slice(j, j + 4) === '{if:') {
+                            depth++;
+                            j += 4;
+                        } else if (text.slice(j, j + 7) === '{endif}') {
+                            depth--;
+                            if (depth === 0) {
+                                endifPos = j;
+                                branches.push({ type: 'endif', tagStart: j });
+                            }
+                            j += 7;
+                        } else if (depth === 1) {
+                            if (text.slice(j, j + 8) === '{elseif:') {
+                                let eStart = j + 8;
+                                if (text[eStart] === ' ') eStart++;
+                                let eEnd = text.indexOf('}', eStart);
+                                if (eEnd !== -1) {
+                                    branches.push({ type: 'elseif', condition: text.slice(eStart, eEnd).trim(), tagStart: j, tagEnd: eEnd + 1 });
+                                    j = eEnd + 1;
+                                    continue;
+                                }
+                            } else if (text.slice(j, j + 6) === '{else}') {
+                                branches.push({ type: 'else', tagStart: j, tagEnd: j + 6 });
+                                j += 6;
+                                continue;
+                            }
+                        }
+                    }
+                    j++;
+                }
+
+                if (endifPos === -1) {
+                    output += text.slice(i);
+                    break;
+                }
+
+                let selected = null;
+                for (let b = 0; b < branches.length; b++) {
+                    const branch = branches[b];
+                    if (branch.type === 'endif') break;
+
+                    let match = false;
+                    if (branch.type === 'else') {
+                        match = true;
+                    } else {
+                        try {
+                            match = !!new Function('state', 'try { return ' + branch.condition + '; } catch(e) { return false; }')(this.state);
+                        } catch { match = false; }
+                    }
+
+                    if (match) {
+                        const nextTagStart = (b + 1 < branches.length) ? branches[b + 1].tagStart : endifPos;
+                        selected = text.slice(branch.tagEnd, nextTagStart);
+                        break;
+                    }
+                }
+
+                if (selected !== null) {
+                    output += this.processConditionals(selected);
+                }
+                i = endifPos + 7;
+            } else {
+                output += text[i];
+                i++;
+            }
+        }
+        return output;
+    },
+
+    _checkRedirects(text) {
+        const m = text.match(/\{redirect:([^}]+)\}/);
+        if (m && this.nodes[m[1].trim()]) return m[1].trim();
+        return null;
+    },
+
+    runWaitSequences() {
+        this._waitTimeouts?.forEach(t => clearTimeout(t));
+        this._waitTimeouts = [];
+        const content = document.getElementById('passage-content');
+        const sequences = content.querySelectorAll('.wait-sequence');
+        if (sequences.length === 0) { this._tailElements = null; return; }
+        const lastSeq = sequences[sequences.length - 1];
+        const lastFade = parseInt(lastSeq.dataset.fade, 10) || 500;
+        const lastContainer = lastSeq.closest('.wait-container');
+        const anchor = lastContainer || lastSeq;
+        const tailElements = [];
+        let next = anchor.nextElementSibling;
+        while (next) {
+            tailElements.push(next);
+            next.style.opacity = '0';
+            next = next.nextElementSibling;
+        }
+        this._tailElements = tailElements;
+        let totalDelay = 0;
+        sequences.forEach(seq => {
+            const duration = parseInt(seq.dataset.duration, 10);
+            const fade = parseInt(seq.dataset.fade, 10);
+            const t1 = setTimeout(() => {
+                seq.style.opacity = '1';
+                const t2 = setTimeout(() => {
+                    seq.style.opacity = '0';
+                }, duration);
+                this._waitTimeouts.push(t2);
+            }, totalDelay);
+            this._waitTimeouts.push(t1);
+            totalDelay += duration + fade * 2;
+        });
+        const tailT = setTimeout(() => {
+            (this._tailElements || []).forEach(el => {
+                el.style.transition = 'opacity ' + lastFade + 'ms ease';
+                el.style.opacity = '1';
+            });
+            setTimeout(() => {
+                (this._tailElements || []).forEach(el => el.style.transition = '');
+                this._tailElements = null;
+            }, lastFade + 50);
+        }, totalDelay);
+        this._waitTimeouts.push(tailT);
+    }
+};
+
+if (typeof STORY_DATA !== 'undefined' && STORY_DATA && STORY_DATA.nodes) {
+    game.init(STORY_DATA);
+}
+</script>
+</body>
+</html>

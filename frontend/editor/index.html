@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NodeFable - Node Canvas</title>
+    <link rel="icon" type="image/x-icon" href="Assets/Logo/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="Assets/Logo/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="Assets/Logo/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="Assets/Logo/apple-touch-icon.png">
+    <!-- Drawflow CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/drawflow@0.0.60/dist/drawflow.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/drawflow@0.0.60/dist/drawflow.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --sidebar-width: 380px;
+            --var-panel-width: 260px;
+            --header-height: 50px;
+            --bg-color: #1e1e1e;
+            --panel-color: #2d2d2d;
+            --border-color: #444;
+            --text-color: #eee;
+            --accent-color: #3498db;
+            --success-color: #27ae60;
+            --danger-color: #e74c3c;
+            --choice-bg: #353535;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-color) transparent;
+        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #666; }
+
+        #app {
+            display: grid;
+            grid-template-columns: var(--var-panel-width) 1fr var(--sidebar-width);
+            grid-template-rows: var(--header-height) 1fr;
+            height: 100vh;
+        }
+
+        .logo { display: flex; align-items: center; gap: 10px; }
+        .logo img { height: 32px; width: auto; display: block; }
+
+        header {
+            grid-column: 1 / span 3;
+            background-color: #111;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #editor-panel {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--bg-color);
+        }
+
+        .tab-bar {
+            display: flex;
+            background: #111;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .tab-btn {
+            background: transparent;
+            color: #888;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            border-bottom: 2px solid transparent;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .tab-btn:hover { color: #ccc; }
+        .tab-btn.active {
+            color: #fff;
+            border-bottom-color: var(--accent-color);
+        }
+
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        #tab-graph {
+            position: relative;
+            contain: layout style paint;
+        }
+        #tab-graph::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: radial-gradient(#333 1px, transparent 1px);
+            background-size: 20px 20px;
+            background-attachment: fixed;
+            pointer-events: none;
+        }
+        #tab-graph .drawflow {
+            transform-origin: 0 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        #tab-markdown {
+            padding: 20px;
+        }
+        #tab-markdown textarea {
+            flex: 1;
+            resize: none;
+            margin-bottom: 0;
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+
+        #sidebar {
+            grid-column: 3;
+            background-color: var(--panel-color);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        #var-panel {
+            grid-column: 1;
+            background-color: var(--panel-color);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        button.success { background-color: var(--success-color); }
+        button.danger { background-color: var(--danger-color); }
+
+        button:hover { opacity: 0.9; }
+        button svg { vertical-align: middle; pointer-events: none; }
+
+        .sidebar-section { padding: 20px; }
+
+        h2 { margin-top: 0; font-size: 1.1rem; margin-bottom: 12px; }
+        h3 { font-size: 0.95rem; color: #ccc; margin: 16px 0 10px; }
+
+        label { display: block; margin-bottom: 4px; color: #aaa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .label-checkbox { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; text-transform: none; font-weight: 400; cursor: pointer; white-space: nowrap; }
+        .label-checkbox input { width: auto; flex-shrink: 0; margin: 0; }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 12px;
+            background: #3d3d3d;
+            border: 1px solid var(--border-color);
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--accent-color);
+            outline: none;
+        }
+
+        .var-list { margin-top: 8px; }
+        .var-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            background: var(--choice-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+        }
+        .var-item .var-name { font-weight: 600; }
+        .var-item .var-type { color: #888; font-size: 0.75rem; margin-left: 6px; }
+        .var-item .var-value { color: #4ec9b0; font-size: 0.85rem; }
+        .var-item-content { cursor: pointer; flex: 1; }
+        .var-item .var-actions { display: flex; gap: 4px; }
+        .var-item .var-actions button {
+            padding: 2px 8px;
+            font-size: 0.7rem;
+            min-width: 30px;
+        }
+
+        .asset-section {
+            margin-top: 20px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 16px;
+        }
+        .asset-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .asset-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            background: var(--choice-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            word-break: break-all;
+            transition: border-color 0.2s;
+        }
+        .asset-item:hover {
+            background: #3a3a3a;
+            border-color: var(--accent-color);
+        }
+        .asset-item .asset-preview {
+            width: 28px;
+            height: 28px;
+            object-fit: cover;
+            border-radius: 2px;
+            margin-right: 8px;
+            flex-shrink: 0;
+            background: #1a1a1a;
+        }
+        .asset-item { position: relative; }
+        .asset-delete-btn {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            background: rgba(231, 76, 60, 0.8);
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 2;
+        }
+        .asset-item:hover .asset-delete-btn,
+        .asset-item:focus-within .asset-delete-btn {
+            opacity: 1;
+        }
+        .asset-item .asset-syntax {
+            color: #4ec9b0;
+            font-family: 'Courier New', monospace;
+            line-height: 1.3;
+        }
+
+        .var-form {
+            background: var(--choice-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 8px;
+            margin-bottom: 12px;
+        }
+        .var-form input, .var-form select { margin-bottom: 8px; font-size: 0.85rem; }
+
+        .choice-card {
+            background: var(--choice-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .choice-card label { font-size: 0.75rem; }
+        .choice-card input { margin-bottom: 8px; font-size: 0.85rem; }
+        .choice-target {
+            font-size: 0.8rem;
+            color: var(--success-color);
+            font-weight: 600;
+        }
+        .choice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .choice-header button {
+            padding: 2px 8px;
+            font-size: 0.7rem;
+        }
+        .choice-link-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-bottom: 8px;
+            padding: 4px 8px;
+            background: #2a2a2a;
+            border-radius: 3px;
+            border-left: 3px solid var(--accent-color);
+        }
+        .choice-link-text em {
+            color: var(--accent-color);
+            font-style: italic;
+        }
+        .action-link-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-bottom: 8px;
+            padding: 4px 8px;
+            background: #2a2a2a;
+            border-radius: 3px;
+            border-left: 3px solid var(--success-color);
+            font-family: 'Courier New', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .pair-card {
+            background: #1e1e1e;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 6px;
+        }
+        .pair-card label {
+            font-size: 0.75rem;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .pair-card .pair-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 4px;
+        }
+
+        /* Node Overlay Buttons */
+        .node-overlay {
+            position: absolute;
+            top: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 5px;
+            z-index: 100;
+        }
+
+        .node-overlay button {
+            padding: 2px 6px;
+            font-size: 0.7rem;
+            border-radius: 3px;
+            min-width: 45px;
+        }
+
+        .drawflow .drawflow-node:hover .node-overlay {
+            display: flex;
+        }
+
+        body.is-linking {
+            cursor: copy;
+        }
+        body.is-linking .drawflow-node {
+            outline: 2px dashed #f39c12;
+            cursor: crosshair;
+        }
+        body.is-linking .drawflow-node .node-overlay {
+            display: none !important;
+        }
+
+        .drawflow .df_canvas { background-color: transparent !important; }
+
+        .md-toolbar {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+        .md-btn {
+            background: #3d3d3d;
+            border: 1px solid var(--border-color);
+            color: #ccc;
+            padding: 4px 10px;
+            font-size: 0.8rem;
+            border-radius: 3px;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+        .md-btn:hover {
+            background: #555;
+            color: #fff;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal {
+            background: var(--panel-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 24px;
+            min-width: 400px;
+            max-width: 500px;
+            max-height: 70vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal h3 { margin: 0 0 16px; }
+        .modal input { margin-bottom: 12px; }
+        .save-list {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            min-height: 100px;
+            max-height: 300px;
+        }
+        .save-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        .save-item:last-child { border-bottom: none; }
+        .save-item:hover { background: #3a3a3a; }
+        .save-item.selected { background: var(--accent-color); color: #fff; }
+        .save-item .mtime { color: #888; font-size: 0.75rem; }
+        .save-item.selected .mtime { color: #ddd; }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal-actions button { min-width: 80px; }
+        .modal-empty {
+            color: #888;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 24px;
+        }
+
+        #loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+        #loader-content {
+            background: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 24px 32px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #444;
+            border-top-color: var(--accent-color, #3498db);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #loader-text {
+            color: #eee;
+            font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: #eee;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            transition: opacity 0.3s;
+            opacity: 1;
+        }
+        #toast.hidden { opacity: 0; }
+
+        .search-container {
+            flex: 1;
+            max-width: 300px;
+            margin: 0 12px;
+        }
+        #node-search {
+            width: 100%;
+            padding: 8px 12px;
+            margin-bottom: 0;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #eee;
+            font-size: 0.8rem;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+        #node-search:focus {
+            border-color: var(--accent-color, #3498db);
+        }
+        #node-search::placeholder {
+            color: #888;
+        }
+        .node-search-match .drawflow_content_node {
+            box-shadow: 0 0 12px rgba(52, 152, 219, 0.6);
+            border-color: var(--accent-color, #3498db) !important;
+        }
+        .node-search-mismatch {
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        .node-dead-end .drawflow_content_node {
+            border: 2px solid var(--danger-color, #e74c3c) !important;
+            box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
+        }
+        .node-orphan .drawflow_content_node {
+            opacity: 0.6;
+            border: 2px dashed #f39c12 !important;
+        }
+        .node-dead-end.node-orphan .drawflow_content_node {
+            border: 2px solid #e74c3c !important;
+            border-style: dashed !important;
+        }
+
+        /* --- Inline style extraction helpers --- */
+        .btn-secondary { background: #555; }
+        .btn-validate { background: #8e44ad; }
+        .btn-refresh { font-size: 0.7rem; padding: 2px 8px; }
+        .btn-add-action { font-size: 0.85rem; margin-top: 4px; }
+        .btn-block { width: 100%; }
+        .section-title { font-size: 1rem; margin-bottom: 12px; }
+        .section-title-flush { font-size: 1rem; margin: 0; }
+        .subsection-title { margin-top: 16px; }
+        .form-actions { display: flex; gap: 6px; }
+        .passage-actions { display: flex; gap: 10px; margin-top: 12px; }
+        .flex-1 { flex: 1; }
+        .text-muted-sm { color: #888; font-size: 0.8rem; }
+        .text-muted-xs { color: #888; font-size: 0.75rem; margin-bottom: 6px; }
+        .text-muted-lg { color: #888; font-size: 0.9rem; }
+        .helper-text { font-size: 0.75rem; color: #666; margin-top: 8px; }
+        .slug-error { color: var(--danger-color); font-size: 0.75rem; margin-top: -8px; margin-bottom: 8px; }
+        .is-hidden { display: none; }
+
+        /* Drawflow node styles */
+        .drawflow .drawflow-node.story_node {
+            background: #272727;
+            border: 2px solid #3a3a3a;
+            border-radius: 6px;
+            color: #ddd;
+            width: 180px;
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            font-size: 0.85rem;
+        }
+        .drawflow .drawflow-node.selected {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 15px rgba(52, 152, 219, 0.3);
+        }
+        .node-start {
+            border-left: 4px solid var(--success-color) !important;
+        }
+        .node-side-panel {
+            border-left: 4px solid #f39c12 !important;
+            background: #2a2a2a;
+        }
+
+        /* Keyboard focus indicators */
+        button:focus-visible,
+        .md-btn:focus-visible,
+        input:focus-visible,
+        textarea:focus-visible,
+        select:focus-visible,
+        a:focus-visible {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+        }
+        .helper-text a {
+            color: var(--accent-color, #3498db);
+        }
+        .helper-text a:visited {
+            color: var(--accent-color, #3498db);
+        }
+        .helper-text a:hover {
+            color: #5dade2;
+        }
+
+        /* Modal / overlay fade-in */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .modal-overlay { animation: fadeIn 0.2s ease; }
+        .modal { animation: fadeIn 0.2s ease; }
+        #loader-overlay { animation: fadeIn 0.2s ease; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <header>
+        <div class="logo"><img src="Assets/Logo/android-chrome-192x192.png" alt="NodeFable">NodeFable <strong class="accent">Canvas</strong></div>
+        <div class="search-container">
+            <input type="text" id="node-search" placeholder="Search nodes..." autocomplete="off">
+        </div>
+        <div class="toolbar">
+            <button data-action="addNode">+ Add Node</button>
+            <button class="success" data-action="showSaveModal">Save Project</button>
+            <button data-action="showLoadModal">Load Project</button>
+            <button data-action="exportGame">Export Game</button>
+            <button class="success" data-action="previewGame">Preview Game</button>
+            <button data-action="runValidation" class="btn-validate">Validate</button>
+            <button data-action="openTutorial" class="btn-secondary">Tutorial</button>
+        </div>
+    </header>
+
+    <aside id="var-panel">
+        <h2 class="section-title">Global Variables</h2>
+        <button data-action="showVariableForm" class="btn-block">+ Add Variable</button>
+
+        <div id="var-form" class="var-form is-hidden">
+            <input type="text" id="var-name" placeholder="Variable name (e.g. player_health)">
+            <select id="var-type">
+                <option value="int">int</option>
+                <option value="float">float</option>
+                <option value="string">String</option>
+                <option value="bool">bool</option>
+            </select>
+            <input type="text" id="var-value" placeholder="Initial value">
+            <div class="form-actions">
+                <button id="var-submit-btn" data-action="addVariable" class="flex-1">Add</button>
+                <button data-action="hideVariableForm" class="flex-1 btn-secondary">Cancel</button>
+            </div>
+        </div>
+
+        <div id="var-list" class="var-list"></div>
+
+        <div id="asset-section" class="asset-section is-hidden">
+            <div class="asset-header">
+                <h2 class="section-title-flush">Assets</h2>
+                <button data-action="loadAssetList" class="btn-refresh btn-secondary" title="Refresh asset list"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M6 7L7 6L4.70711 3.70711L5.19868 3.21553C5.97697 2.43724 7.03256 2 8.13323 2C11.361 2 14 4.68015 14 7.93274C14 11.2589 11.3013 14 8 14C6.46292 14 4.92913 13.4144 3.75736 12.2426L2.34315 13.6569C3.90505 15.2188 5.95417 16 8 16C12.4307 16 16 12.3385 16 7.93274C16 3.60052 12.4903 0 8.13323 0C6.50213 0 4.93783 0.647954 3.78447 1.80132L3.29289 2.29289L1 0L0 1V7H6Z"/></svg></button>
+            </div>
+            <p class="text-muted-xs">Click to copy markdown syntax</p>
+            <div id="asset-list"></div>
+        </div>
+    </aside>
+
+    <main id="editor-panel">
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="graph">Graph Editor</button>
+            <button class="tab-btn" data-tab="markdown">Markdown Editor</button>
+        </div>
+        <div id="tab-graph" class="tab-content active"></div>
+        <div id="tab-markdown" class="tab-content">
+            <textarea id="passage-content" placeholder="Write the story passage text here..."></textarea>
+            <div class="helper-text">Need syntax help? Visit the <a href="tutorial.html" target="_blank">Tutorial</a>.</div>
+        </div>
+    </main>
+
+    <aside id="sidebar">
+        <div class="sidebar-section" id="inspector-panel">
+            <h2 id="inspector-title">Passage Editor</h2>
+            <p id="no-selection-msg" class="text-muted-lg">Select a node to edit its passage.</p>
+
+<div id="passage-editor" class="is-hidden">
+                <label for="passage-title">Title</label>
+                <input type="text" id="passage-title" placeholder="Enter passage title...">
+
+                <label for="passage-id">Node ID (slug)</label>
+                <input type="text" id="passage-id" placeholder="Auto-generated from title (lowercase, underscores)" onblur="validateSlugOnBlur()">
+                <p id="passage-id-error" class="slug-error is-hidden"></p>
+
+                <label for="passage-is-start" class="label-checkbox">
+                    <input type="checkbox" id="passage-is-start" onchange="toggleStartNode(this.checked)">
+                    Starting node (game begins here)
+                </label>
+
+                <div class="md-toolbar">
+                    <button type="button" class="md-btn" onclick="insertMarkdown('**','**')" title="Bold"><b>B</b></button>
+                    <button type="button" class="md-btn" onclick="insertMarkdown('*','*')" title="Italic"><i>I</i></button>
+                    <button type="button" class="md-btn" onclick="insertMarkdown('\n## ','')" title="Heading">H</button>
+                    <button type="button" class="md-btn" onclick="insertMarkdown('[','](url)')" title="Link"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M7.05025 1.53553C8.03344 0.552348 9.36692 0 10.7574 0C13.6528 0 16 2.34721 16 5.24264C16 6.63308 15.4477 7.96656 14.4645 8.94975L12.4142 11L11 9.58579L13.0503 7.53553C13.6584 6.92742 14 6.10264 14 5.24264C14 3.45178 12.5482 2 10.7574 2C9.89736 2 9.07258 2.34163 8.46447 2.94975L6.41421 5L5 3.58579L7.05025 1.53553Z"/><path d="M7.53553 13.0503L9.58579 11L11 12.4142L8.94975 14.4645C7.96656 15.4477 6.63308 16 5.24264 16C2.34721 16 0 13.6528 0 10.7574C0 9.36693 0.552347 8.03344 1.53553 7.05025L3.58579 5L5 6.41421L2.94975 8.46447C2.34163 9.07258 2 9.89736 2 10.7574C2 12.5482 3.45178 14 5.24264 14C6.10264 14 6.92742 13.6584 7.53553 13.0503Z"/><path d="M5.70711 11.7071L11.7071 5.70711L10.2929 4.29289L4.29289 10.2929L5.70711 11.7071Z"/></svg></button>
+                    <button type="button" class="md-btn" onclick="insertImage()" title="Image"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z"/></svg></button>
+                    <button type="button" class="md-btn" onclick="insertMarkdown('\n- ','')" title="Bullet List"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em"><path d="M12 10a2 2 0 1 0 0 4 2 2 0 1 0 0-4z"/></svg></button>
+                    <button type="button" class="md-btn" onclick="insertMarkdown('\n1. ','')" title="Numbered List">1.</button>
+                    <button type="button" class="md-btn" onclick="insertAction()" title="Action (variable mutation)"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M9 7L10 0H8L2 7V9H7L6 16H8L14 9L14 7H9Z"/></svg></button>
+                </div>
+
+                <h3>Choices (Links)</h3>
+                <div id="choices-list">
+                    <p id="no-choices-msg" class="text-muted-sm">Use the Link button [Link] on a node to connect passages.</p>
+                </div>
+
+                <h3 class="subsection-title">Actions</h3>
+                <div id="actions-list">
+                    <p class="text-muted-sm">No actions defined.</p>
+                </div>
+                <button type="button" data-action="insertAction" class="btn-add-action">+ Add Action</button>
+
+                <h3 class="subsection-title">On Enter</h3>
+                <div id="onenter-section">
+                    <p class="text-muted-sm">No on-enter redirect configured.</p>
+                </div>
+
+                <div class="passage-actions">
+                    <button data-action="updateCurrentNode">Save Passage</button>
+                    <button class="danger" data-action="deleteCurrentNode">Delete Node</button>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<div id="loader-overlay" class="is-hidden">
+    <div id="loader-content">
+        <div class="spinner"></div>
+        <span id="loader-text">Loading...</span>
+    </div>
+</div>
+
+<div id="modal-overlay" class="modal-overlay is-hidden">
+    <div id="save-modal" class="modal is-hidden">
+        <h3>Save Project</h3>
+        <input type="text" id="save-name-input" placeholder="Project name..." autocomplete="off">
+        <div id="save-list" class="save-list"></div>
+        <div class="modal-actions">
+            <button class="success" data-action="confirmSave">Save</button>
+            <button data-action="closeModal" class="btn-secondary">Cancel</button>
+        </div>
+    </div>
+    <div id="load-modal" class="modal is-hidden">
+        <h3>Load Project</h3>
+        <div id="load-list" class="save-list"></div>
+        <div class="modal-actions">
+            <button class="success" data-action="confirmLoad">Load</button>
+            <button data-action="closeModal" class="btn-secondary">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -541,6 +541,29 @@ const game = {
             if (count >= 2) return '<div class="wait-container">' + match + '</div>';
             return match;
         });
+        html = html.replace(/\{dialogue:([^}]*)\}([\s\S]*?)\{enddialogue\}/g, (match, params, body) => {
+            params = params.trim();
+            let leftHtml = '';
+            const imgMatch = params.match(/^(<img[^>]*>)/);
+            if (imgMatch) {
+                leftHtml += imgMatch[1].replace(
+                    'style="max-width:100%;height:auto"',
+                    'class="dialogue-avatar"'
+                );
+                const rest = params.slice(imgMatch[1].length).trim();
+                if (rest.startsWith(',')) {
+                    const name = rest.slice(1).trim();
+                    if (name) leftHtml += '<div class="dialogue-name">' + name + '</div>';
+                }
+            } else if (params) {
+                leftHtml += '<div class="dialogue-name">' + params + '</div>';
+            }
+            const bodyHtml = body.trim().replace(/\n/g, '<br>');
+            return '<div class="dialogue-block">' +
+                (leftHtml ? '<div class="dialogue-left">' + leftHtml + '</div>' : '') +
+                '<div class="dialogue-text">' + bodyHtml + '</div>' +
+            '</div>';
+        });
         html = html
             .replace(/\{var:?\s*state\.(\w+)\}/g, (_, name) => {
                 const val = this.state[name];

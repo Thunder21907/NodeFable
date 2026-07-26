@@ -216,6 +216,7 @@
         <div class="nav-section">Writing Content</div>
         <a href="#editing">Editing Content</a>
         <a href="#markdown">Markdown Reference</a>
+        <a href="#dialogue">Dialogue</a>
         <a href="#variables">Variables</a>
         <a href="#image-catalog">Image Catalog</a>
         <a href="#actions">Actions</a>
@@ -666,6 +667,51 @@
     <li><strong>Display interpolation</strong> — <code>{var:state.name}</code> — used for showing values in text.</li>
     <li><strong>Conditional blocks</strong> — <code>{if: condition}...{endif}</code> — must use <code>state.</code> prefix in the condition, used for controlling what text appears.</li>
 </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="dialogue">
+<h2>Dialogue</h2>
+<p>
+    Dialogue blocks give character speech a distinct visual style, separated from the rest of the passage content.
+    Use the <code>{dialogue:}</code> tag with an optional speaker image and name.
+</p>
+
+<h3>Basic Syntax</h3>
+<pre><code>{dialogue:}Hello world!{enddialogue}</code></pre>
+<p>
+    Renders as a styled block with no image or name — just the dialogue text.
+</p>
+
+<h3>With Speaker Name</h3>
+<pre><code>{dialogue: Bob}Hi there!{enddialogue}</code></pre>
+<p>
+    The name appears centered below where the avatar would be.
+</p>
+
+<h3>With Speaker Image</h3>
+<p>
+    Use standard markdown image syntax inside the opening tag:
+</p>
+<pre><code>{dialogue: ![portrait](assets/char.png)}Hello!{enddialogue}</code></pre>
+
+<h3>With Image and Name</h3>
+<p>
+    Separate the image and name with a comma:
+</p>
+<pre><code>{dialogue: ![portrait](assets/char.png), Bob}Hey, how are you?{enddialogue}</code></pre>
+
+<h3>Inline Content</h3>
+<p>
+    The dialogue body supports all inline markdown — bold, italic, images, choices, actions, and <code>{var:state.name}</code> interpolation:
+</p>
+<pre><code>{dialogue: Sarah}I've got **{var:state.gold}** gold pieces. Want to trade?{enddialogue}</code></pre>
+
+<h3>Image Paths</h3>
+<p>
+    Use the same image paths as you would in passage content. In the exported game, these are rewritten to local <code>assets/</code> paths automatically.
+    Use the <strong>Image Catalog</strong> to quickly copy image markdown syntax.
+</p>
 </section>
 
 <!-- ============================================================ -->

@@ -15,7 +15,7 @@ fi
 # 2. Start the FastAPI server in the background
 # We use port 8005 to avoid common conflicts with other services
 echo "Starting FastAPI server on http://localhost:8005..."
-uvicorn backend.main:app --host 127.0.0.1 --port 8005 &
+./venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8005 &
 UVICORN_PID=$!
 
 # 3. Wait for the server to start up

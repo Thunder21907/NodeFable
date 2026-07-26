@@ -87,6 +87,7 @@ Processed in the runtime engine: conditional resolution (`processConditionals`),
 | `{if: condition}yes{else}no{endif}` | Conditionally rendered block (evaluated against `state`) | `{if: state.has_key}Door unlocked!{endif}` |
 | `{wait:N}...{endwait}` | Timed sequence — content fades in N ms, then fades out (500ms fade default) | `{wait:2000}...{endwait}` |
 | `{wait:N,fade:M}...{endwait}` | Wait sequence with custom fade duration M (ms) | `{wait:2000,fade:800}text{endwait}` |
+| `{dialogue:...}...{enddialogue}` | Styled dialogue block with optional image and speaker | `{dialogue: Bob}Hello!{enddialogue}` |
 | `**bold text**` | Bold | `**warning**` |
 | `*italic text*` | Italic | `*whisper*` |
 | `# Heading` | `<h1>` | `# The Dark Forest` |
@@ -147,6 +148,25 @@ Custom dimensions: append `{img:w=200,h=300}` right after the closing `)` to set
 ![Banner](assets/banner.png){img:w=800,h=200}
 ![Divider](assets/divider.png){img:h=50}
 ```
+
+### Dialogue Blocks
+
+Use `{dialogue:...}...{enddialogue}` to render styled dialogue boxes. The optional parameters inside the opening tag determine the layout:
+
+| Syntax | Result |
+|---|---|
+| `{dialogue:}text{enddialogue}` | Dialogue text only, no avatar or name |
+| `{dialogue: Name}text{enddialogue}` | Name displayed on the left |
+| `{dialogue: ![img](url)}text{enddialogue}` | Image avatar (56×56 circle) on the left |
+| `{dialogue: ![img](url), Name}text{enddialogue}` | Image avatar with name below it |
+
+The body supports all inline markdown: bold, italic, images, links, and `{var:state.x}` interpolation.
+
+```json
+"text": "{dialogue: ![portrait](assets/alex.jpeg), Alex}I've got {var:state.gold} gold. Want to trade?{enddialogue}"
+```
+
+Image paths follow the same rules as regular passage images — asset URLs are rewritten to `assets/` during export.
 
 ---
 
@@ -427,7 +447,7 @@ The node with `is_start: true` is the start. If none is marked, the first non-`s
 2. `{redirect:}` in resolved text is checked — if found, `{set:}` mutations execute and redirect fires (returns to step 1 with target node)
 3. On Enter redirect is checked (if condition met, redirect to target node)
 4. `{set:}` mutations are executed, remaining `{redirect:}` directives are stripped
-5. Text is converted to HTML: `{random:}` resolved, HTML-escaped, images, links, bold/italic, and headings rendered, `{wait:}` blocks converted to animated containers, `{var:}` tokens replaced with current state values
+5. Text is converted to HTML: `{random:}` resolved, HTML-escaped, images, links, bold/italic, and headings rendered, `{wait:}` blocks converted to animated containers, `{dialogue:}` blocks rendered as styled dialogue boxes, `{var:}` tokens replaced with current state values
 6. Choice prerequisites and action conditions are evaluated during link rendering (failing links get `class="disabled"`)
 7. The HTML is injected into the passage-content div
 8. Side panel is re-rendered (via the same `_preprocessText` pipeline)

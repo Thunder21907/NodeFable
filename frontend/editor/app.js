@@ -1398,6 +1398,7 @@ function closeModal() {
     document.getElementById('modal-overlay').style.display = 'none';
     document.getElementById('save-modal').style.display = 'none';
     document.getElementById('load-modal').style.display = 'none';
+    document.getElementById('import-modal').style.display = 'none';
     selectedLoadName = null;
 }
 
@@ -1408,6 +1409,152 @@ function openModal(type) {
         document.getElementById('save-name-input').value = '';
         document.getElementById('save-name-input').focus();
     }
+}
+
+function showImportModal() {
+    openModal('import');
+    document.getElementById('import-textarea').value = '';
+    const errorEl = document.getElementById('import-error');
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+    document.getElementById('import-textarea').classList.remove('has-error');
+}
+
+function importNode() {
+    const raw = document.getElementById('import-textarea').value.trim();
+    const errorEl = document.getElementById('import-error');
+    const textarea = document.getElementById('import-textarea');
+
+    if (!raw) {
+        errorEl.textContent = 'Paste a node JSON object first.';
+        errorEl.style.display = 'block';
+        textarea.classList.add('has-error');
+        return;
+    }
+
+    let obj;
+    try { obj = JSON.parse(raw); } catch (e) {
+        errorEl.textContent = 'Invalid JSON: ' + e.message;
+        errorEl.style.display = 'block';
+        textarea.classList.add('has-error');
+        return;
+    }
+
+    if (typeof obj !== 'object' || Array.isArray(obj) || obj === null) {
+        errorEl.textContent = 'Input must be a JSON object (not an array or primitive).';
+        errorEl.style.display = 'block';
+        textarea.classList.add('has-error');
+        return;
+    }
+
+    if (typeof obj.id !== 'string' || !obj.id.trim()) {
+        errorEl.textContent = 'Node must have a valid "id" field (non-empty string).';
+        errorEl.style.display = 'block';
+        textarea.classList.add('has-error');
+        return;
+    }
+
+    if (typeof obj.title !== 'string' || !obj.title.trim()) {
+        errorEl.textContent = 'Node must have a valid "title" field (non-empty string).';
+        errorEl.style.display = 'block';
+        textarea.classList.add('has-error');
+        return;
+    }
+
+    errorEl.style.display = 'none';
+    textarea.classList.remove('has-error');
+
+    const id = obj.id.trim();
+
+    if (id === 'side_panel') {
+        const existingId = slugToNodeId['side_panel'];
+        if (existingId !== undefined) {
+            editor.removeNodeId('node-' + existingId);
+            delete nodesData[existingId];
+        }
+        const x = typeof obj.x === 'number' ? obj.x : 20;
+        const y = typeof obj.y === 'number' ? obj.y : 20;
+        const nodeId = editor.addNode('story_node', 1, 1, x, y, 'story_node', {}, obj.title);
+        nodesData[nodeId] = {
+            title: obj.title,
+            text: typeof obj.text === 'string' ? obj.text : '',
+            slug: 'side_panel',
+            choices: Array.isArray(obj.choices) ? obj.choices.map(c => ({
+                text: c.text || '',
+                targetSlug: c.targetSlug || c.target_node_id || ''
+            })) : [],
+            actions: Array.isArray(obj.actions) ? obj.actions.map(a => {
+                if (typeof a === 'string') return a;
+                return {
+                    text: a.text || a.prompt || '',
+                    id: a.id || '',
+                    pairs: (Array.isArray(a.pairs) ? a.pairs : []).map(p => ({
+                        condition: p.condition || p.label || '',
+                        mutation: p.mutation || ''
+                    }))
+                };
+            }) : [],
+            on_enter: (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null,
+            is_start: false
+        };
+        slugToNodeId['side_panel'] = nodeId;
+        const el = document.getElementById('node-' + nodeId);
+        if (el) el.classList.add('node-side-panel');
+        closeModal();
+        showToast('Imported side panel node');
+        runValidation();
+        return;
+    }
+
+    const slug = generateUniqueSlug(id);
+    const x = typeof obj.x === 'number' ? obj.x : 0;
+    const y = typeof obj.y === 'number' ? obj.y : 0;
+
+    const nodeId = editor.addNode('story_node', 1, 1, x, y, 'story_node', {}, obj.title);
+
+    const choices = Array.isArray(obj.choices) ? obj.choices.map(c => ({
+        text: c.text || '',
+        targetSlug: c.targetSlug || c.target_node_id || ''
+    })) : [];
+
+    const actions = Array.isArray(obj.actions) ? obj.actions.map(a => {
+        if (typeof a === 'string') return a;
+        return {
+            text: a.text || a.prompt || '',
+            id: a.id || '',
+            pairs: (Array.isArray(a.pairs) ? a.pairs : []).map(p => ({
+                condition: p.condition || p.label || '',
+                mutation: p.mutation || ''
+            }))
+        };
+    }) : [];
+
+    const on_enter = (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null;
+    const is_start = obj.is_start === true;
+
+    nodesData[nodeId] = {
+        title: obj.title,
+        text: typeof obj.text === 'string' ? obj.text : '',
+        slug: slug,
+        choices: choices,
+        actions: actions,
+        on_enter: on_enter,
+        is_start: is_start
+    };
+    slugToNodeId[slug] = nodeId;
+
+    if (is_start) {
+        for (const [nid, d] of Object.entries(nodesData)) {
+            if (parseInt(nid) !== nodeId && d.is_start) {
+                d.is_start = false;
+            }
+        }
+        updateStartBadgeOnCanvas(nodeId);
+    }
+
+    closeModal();
+    showToast('Imported node: ' + obj.title);
+    runValidation();
 }
 
 function setupEditorDelegation() {
@@ -1545,6 +1692,8 @@ function setupButtonDelegation() {
             case 'deleteCurrentNode': deleteCurrentNode(); break;
             case 'confirmSave': confirmSave(); break;
             case 'confirmLoad': confirmLoad(); break;
+            case 'importNode': showImportModal(); break;
+            case 'confirmImport': importNode(); break;
             case 'closeModal': closeModal(); break;
         }
     });

@@ -606,6 +606,35 @@
         .slug-error { color: var(--danger-color); font-size: 0.75rem; margin-top: -8px; margin-bottom: 8px; }
         .is-hidden { display: none; }
 
+        #import-textarea {
+            width: 100%;
+            min-height: 300px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            background: #1e1e1e;
+            color: #ddd;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            resize: vertical;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-sizing: border-box;
+        }
+        #import-textarea:focus {
+            outline: none;
+            border-color: var(--accent-color, #3498db);
+            box-shadow: 0 0 12px rgba(52, 152, 219, 0.6);
+        }
+        #import-textarea.has-error {
+            border-color: var(--danger-color, #e74c3c) !important;
+            box-shadow: 0 0 12px rgba(231, 76, 60, 0.6);
+        }
+        #import-error {
+            color: var(--danger-color, #e74c3c);
+            font-size: 0.85rem;
+            margin-top: 8px;
+        }
+
         /* Drawflow node styles */
         .drawflow .drawflow-node.story_node {
             background: #272727;
@@ -669,6 +698,7 @@
         </div>
         <div class="toolbar">
             <button data-action="addNode">+ Add Node</button>
+            <button data-action="importNode">Import Node</button>
             <button class="success" data-action="showSaveModal">Save Project</button>
             <button data-action="showLoadModal">Load Project</button>
             <button data-action="exportGame">Export Game</button>
@@ -797,6 +827,16 @@
         <div id="load-list" class="save-list"></div>
         <div class="modal-actions">
             <button class="success" data-action="confirmLoad">Load</button>
+            <button data-action="closeModal" class="btn-secondary">Cancel</button>
+        </div>
+    </div>
+    <div id="import-modal" class="modal is-hidden">
+        <h3>Import Node</h3>
+        <p class="text-muted-sm" style="margin-bottom:12px;">Paste a node JSON object below:</p>
+        <textarea id="import-textarea" placeholder='{&#10;  "id": "my_node",&#10;  "title": "My Node",&#10;  "text": "Content here..."&#10;}'></textarea>
+        <div id="import-error" class="is-hidden"></div>
+        <div class="modal-actions">
+            <button class="success" data-action="confirmImport">Import</button>
             <button data-action="closeModal" class="btn-secondary">Cancel</button>
         </div>
     </div>

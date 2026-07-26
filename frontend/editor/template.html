@@ -63,7 +63,7 @@ const game = {
             let link = e.target.closest('a[data-node]');
             if (link) {
                 e.preventDefault();
-                if (!link.classList.contains('disabled')) this.navigateTo(link.dataset.node);
+                if (!link.classList.contains('disabled')) this.navigateTo(link.dataset.node, parseInt(link.dataset.choiceIndex));
                 return;
             }
             link = e.target.closest('a[data-action]');
@@ -90,9 +90,14 @@ const game = {
         this.updateNavButtons();
     },
 
-    navigateTo(slug) {
+    navigateTo(slug, choiceIndex) {
         const node = this.currentNodeId ? this.nodes[this.currentNodeId] : null;
-        const choice = node ? (node.choices || []).find(c => c.target_node_id === slug) : null;
+        let choice;
+        if (!isNaN(choiceIndex)) {
+            choice = node ? (node.choices || [])[choiceIndex] : null;
+        } else {
+            choice = node ? (node.choices || []).find(c => c.target_node_id === slug) : null;
+        }
 
         if (choice && choice.prerequisite) {
             try {
@@ -487,8 +492,16 @@ const game = {
             return before + style + after;
         });
 
+        const consumed = {};
         html = html.replace(/\[([^\]]*)\]\(node:([^)]+)\)/g, (match, text, slug) => {
-            const choice = choices.find(c => c.target_node_id === slug);
+            if (consumed[slug] === undefined) consumed[slug] = 0;
+            const matchIndices = choices.reduce((acc, c, i) => {
+                if (c.target_node_id === slug) acc.push(i);
+                return acc;
+            }, []);
+            const choiceIdx = matchIndices[consumed[slug]] !== undefined ? matchIndices[consumed[slug]] : matchIndices[0];
+            consumed[slug]++;
+            const choice = choices[choiceIdx];
             let disabled = false;
             if (choice && choice.prerequisite) {
                 try {
@@ -496,7 +509,7 @@ const game = {
                 } catch { disabled = true; }
             }
             const cls = disabled ? ' class="disabled"' : '';
-            return '<a href="#" data-node="' + slug + '"' + cls + '>' + text + '</a>';
+            return '<a href="#" data-node="' + slug + '" data-choice-index="' + choiceIdx + '"' + cls + '>' + text + '</a>';
         });
 
         html = html.replace(/\[([^\]]*)\]\(action:([^)]+)\)/g, (match, text, actionId) => {
@@ -688,18 +701,21 @@ const game = {
         }
         this._tailElements = tailElements;
         let totalDelay = 0;
-        sequences.forEach(seq => {
+        sequences.forEach((seq, i) => {
             const duration = parseInt(seq.dataset.duration, 10);
             const fade = parseInt(seq.dataset.fade, 10);
+            const isLast = i === sequences.length - 1;
             const t1 = setTimeout(() => {
                 seq.style.opacity = '1';
-                const t2 = setTimeout(() => {
-                    seq.style.opacity = '0';
-                }, duration);
-                this._waitTimeouts.push(t2);
+                if (!isLast) {
+                    const t2 = setTimeout(() => {
+                        seq.style.opacity = '0';
+                    }, duration);
+                    this._waitTimeouts.push(t2);
+                }
             }, totalDelay);
             this._waitTimeouts.push(t1);
-            totalDelay += duration + fade * 2;
+            totalDelay += duration + (isLast ? 0 : fade * 2);
         });
         const tailT = setTimeout(() => {
             (this._tailElements || []).forEach(el => {

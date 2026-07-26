@@ -7,8 +7,14 @@ NodeFable gives you a node-graph canvas: drag passages around, draw connections 
 ## Features
 
 - **Visual node editor** -- drag, drop, and connect story nodes on an infinite canvas using Drawflow. See branching paths, dead ends, and loops emerge as you write.
+
+  ![Graph Editor](Screenshots/NodeFable%20Graph%20Editor.png)
 - **Built-in narrative engine** -- variables, conditionals (`{if: state.hp > 0}`), inline mutations (`{set: state.gold += 10}`), timed wait sequences, and a HUD side panel. No plugins needed.
+
+  ![Markdown Editor](Screenshots/NodeFable%20Markdown%20Editor.png)
 - **Live preview** -- click "Preview Game" to play your story in a new tab. Tweak, re-preview, repeat. Fast iteration without exporting.
+
+  ![Game Preview](Screenshots/NodeFable%20Game%20Preview.png)
 - **Standalone export** -- export your story as a ZIP containing a single self-contained HTML file with inlined assets. Send it to friends, host it anywhere, no server required.
 - **No database, no lock-in** -- everything is flat JSON files. Back them up with git, edit them by hand, own your data.
 - **Asset management** -- upload and manage images through the editor UI. Assets are stored alongside your project files.

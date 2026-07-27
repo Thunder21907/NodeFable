@@ -229,6 +229,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Auto-save title on blur and update canvas node title
+    document.getElementById('passage-title').addEventListener('blur', () => {
+        if (selectedNodeId) {
+            saveCurrentContent(selectedNodeId);
+            const title = document.getElementById('passage-title').value;
+            const nodeEl = document.getElementById('node-' + selectedNodeId);
+            if (nodeEl) {
+                const contentEl = nodeEl.querySelector('.drawflow_content_node');
+                if (contentEl) contentEl.innerHTML = title;
+            }
+        }
+    });
+
+    // Auto-save node ID on blur if valid
+    document.getElementById('passage-id').addEventListener('blur', () => {
+        if (selectedNodeId && validateSlugOnBlur()) {
+            saveCurrentContent(selectedNodeId);
+        }
+    });
+
     document.addEventListener('keydown', (e) => {
         const tag = e.target.tagName;
         const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
@@ -1238,19 +1258,21 @@ function hideIdError() {
 }
 
 function validateSlugOnBlur() {
-    if (!selectedNodeId) return;
+    if (!selectedNodeId) return false;
     const newSlug = document.getElementById('passage-id').value.trim();
     const nodeData = nodesData[selectedNodeId];
-    if (!nodeData) return;
+    if (!nodeData) return false;
 
     if (!newSlug) {
         showIdError('Node ID cannot be empty');
-        return;
+        return false;
     }
     if (newSlug !== nodeData.slug && slugToNodeId[newSlug] !== undefined) {
         showIdError('Node ID "' + newSlug + '" is already in use');
+        return false;
     } else {
         hideIdError();
+        return true;
     }
 }
 

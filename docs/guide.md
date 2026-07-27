@@ -170,6 +170,91 @@ Image paths follow the same rules as regular passage images — asset URLs are r
 
 ---
 
+## 2b. Interactive Form Elements
+
+Form elements let players input data directly into the story — typing text, toggling checkboxes, or selecting radio options. Each element is bound to a story variable and updates it automatically.
+
+### TextField
+
+**Syntax:** `{textfield: state.var, hint, commit_mode}`
+
+Renders a text input field. The variable name uses `state.` prefix in the tag but the field auto-creates the variable.
+
+| Part | Required | Description |
+|------|----------|-------------|
+| `state.var` | Yes | The story variable to bind to |
+| `hint` | No | Placeholder text (grayed out when empty) |
+| `commit_mode` | No | Controls when the variable updates: `live`, `blur`, or `onEnterKey` (default) |
+
+**Commit Modes:**
+
+| Mode | Behavior |
+|------|----------|
+| `live` | Updates `state.var` on every keystroke |
+| `blur` | Updates `state.var` when the field loses focus |
+| `onEnterKey` | Updates `state.var` when the player presses Enter (default) |
+
+**Examples:**
+```
+What is your name? {textfield: state.player_name, Enter your name, blur}
+
+Enter your age: {textfield: state.age, , onEnterKey}
+```
+> Note: No notifications fire on textfield changes, even in `live` mode.
+
+### CheckBox
+
+**Syntax:** `{checkbox: state.var, value}`
+
+Renders a checkbox. When `value` is omitted, the variable toggles as a boolean. When `value` is set, checking sets the variable to that value; unchecking resets it based on the variable's type.
+
+| Part | Required | Description |
+|------|----------|-------------|
+| `state.var` | Yes | The story variable to bind to |
+| `value` | No | If set, checking sets `state.var = value`; unchecking resets to type default |
+
+**Type-aware reset on uncheck:**
+
+| Variable type | Reset value |
+|---------------|-------------|
+| boolean | `false` |
+| number | `0` |
+| string | `""` (empty string) |
+
+**Examples:**
+```
+{checkbox: state.has_sword} Has Sword            ← toggles true/false
+
+{checkbox: state.occupation, farmer} Farmer      ← sets state.occupation = "farmer"
+{checkbox: state.occupation, blacksmith} Blacksmith
+```
+
+### Radio Button Groups
+
+**Syntax:** `{radiogroup}...{endradiogroup}` wrapping `{radiobutton: state.var, value}`
+
+Only one radio button per group can be selected. Group membership is determined by the `{radiogroup}...{endradiogroup}` wrapper. Selecting a radio button immediately updates the variable and re-renders the side panel (HUD).
+
+| Element | Description |
+|---------|-------------|
+| `{radiogroup}` | Opens a radio button group |
+| `{radiobutton: state.var, value}` | A single radio option; text after the tag is the label |
+| `{endradiogroup}` | Closes the group |
+
+**Example:**
+```
+Choose your class:
+{radiogroup}
+{radiobutton: state.class, warrior} Warrior
+{radiobutton: state.class, mage} Mage
+{radiobutton: state.class, rogue} Rogue
+{endradiogroup}
+```
+
+Text after each `{radiobutton:...}` tag is rendered as regular content (can include bold, links, etc.). The radio group is displayed as a bordered container with stacked options.
+
+---
+
 ## 3. Variable System
 
 ### Declaration

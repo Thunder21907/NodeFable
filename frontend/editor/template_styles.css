@@ -281,3 +281,58 @@ body {
     color: #ddd;
     line-height: 1.7;
 }
+
+/* Form Elements */
+.nf-textfield {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    padding: 8px 12px;
+    margin: 6px 0;
+    background: #1a1a1a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ddd;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.nf-textfield:focus {
+    border-color: #7ab8ff;
+}
+.nf-textfield::placeholder {
+    color: #555;
+    font-style: italic;
+}
+
+.nf-checkbox {
+    width: 18px;
+    height: 18px;
+    margin: 6px 4px 6px 0;
+    accent-color: #7ab8ff;
+    vertical-align: middle;
+    cursor: pointer;
+}
+
+.nf-radio {
+    width: 18px;
+    height: 18px;
+    margin: 6px 4px 6px 0;
+    accent-color: #7ab8ff;
+    vertical-align: middle;
+    cursor: pointer;
+}
+.nf-radiogroup {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0;
+    padding: 8px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+}
+.nf-radiogroup .nf-radio {
+    margin-right: 8px;
+}

@@ -220,6 +220,7 @@
         <a href="#variables">Variables</a>
         <a href="#image-catalog">Image Catalog</a>
         <a href="#actions">Actions</a>
+        <a href="#form-elements">Form Elements</a>
         <a href="#onenter">On Enter Redirect</a>
 
         <div class="nav-section">Project</div>
@@ -628,6 +629,9 @@
         <tr><td>Action Link</td><td>(see <a href="#actions" style="color:var(--accent);">Actions</a>)</td><td><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em" style="vertical-align:middle"><path d="M9 7L10 0H8L2 7V9H7L6 16H8L14 9L14 7H9Z"/></svg></td></tr>
         <tr><td>Random</td><td><code>{random:max}</code> or <code>{random:min,max}</code></td><td>&mdash;</td></tr>
         <tr><td>Inline Mutation</td><td><code>{set: expr}</code></td><td>&mdash;</td></tr>
+        <tr><td>Textfield</td><td><code>{textfield: state.var, hint, mode}</code></td><td>&mdash;</td></tr>
+        <tr><td>Checkbox</td><td><code>{checkbox: state.var, value}</code></td><td>&mdash;</td></tr>
+        <tr><td>Radio Group</td><td><code>{radiogroup}...{endradiogroup}</code> + <code>{radiobutton: state.var, val}</code></td><td>&mdash;</td></tr>
     </tbody>
 </table>
 
@@ -919,6 +923,137 @@ You have {var:state.gold} gold pieces.</code></pre>
     <br>• <em>Pair 1:</em> condition <code>state.has_key == false</code> → mutation <code>state.has_key = true</code>
     <br>• <em>Pair 2:</em> (no condition) → mutation <code>state.turns = +1</code>
     <br>This gives the key if the player doesn't already have one, and always increments the turn counter.
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="form-elements">
+<h2>Form Elements</h2>
+<p>
+    Form elements let players input data directly into the story — typing text, toggling checkboxes, or selecting
+    radio options. Each element is bound to a story variable and updates it automatically.
+    Form elements render as native HTML inputs in the exported game.
+</p>
+
+<h3>TextField</h3>
+<p>
+    <strong>Syntax:</strong> <code>{textfield: state.var, hint, commit_mode}</code>
+</p>
+<p>
+    Renders a text input field bound to <code>state.var</code>.
+</p>
+<table>
+    <thead>
+        <tr><th>Part</th><th>Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>state.var</code></td><td>Yes</td><td>The story variable to read from and write to</td></tr>
+        <tr><td><code>hint</code></td><td>No</td><td>Placeholder text shown when the field is empty (grayed out)</td></tr>
+        <tr><td><code>commit_mode</code></td><td>No</td><td>Controls when the variable updates: <code>live</code>, <code>blur</code>, or <code>onEnterKey</code> (default)</td></tr>
+    </tbody>
+</table>
+
+<h4>Commit Modes</h4>
+<table>
+    <thead>
+        <tr><th>Mode</th><th>Behavior</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>live</code></td><td>Updates <code>state.var</code> on every keystroke</td></tr>
+        <tr><td><code>blur</code></td><td>Updates when the field loses focus</td></tr>
+        <tr><td><code>onEnterKey</code></td><td>Updates when the player presses <kbd>Enter</kbd> (default)</td></tr>
+    </tbody>
+</table>
+
+<h4>Examples</h4>
+<pre><code>What is your name? {textfield: state.player_name, Enter your name, blur}
+
+Enter your age: {textfield: state.age, , onEnterKey}</code></pre>
+
+<div class="note">
+    <strong>Note:</strong> No notification toasts fire on textfield changes, even in <code>live</code> mode.
+</div>
+
+<h3>CheckBox</h3>
+<p>
+    <strong>Syntax:</strong> <code>{checkbox: state.var, value}</code>
+</p>
+<p>
+    Renders a checkbox. When <code>value</code> is omitted, clicking toggles <code>state.var</code> as a boolean.
+    When <code>value</code> is provided, checking sets <code>state.var = value</code>;
+    unchecking resets the variable based on its type.
+</p>
+<table>
+    <thead>
+        <tr><th>Part</th><th>Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>state.var</code></td><td>Yes</td><td>The story variable to bind to</td></tr>
+        <tr><td><code>value</code></td><td>No</td><td>If set, checking sets <code>state.var = value</code>; unchecking resets to type default</td></tr>
+    </tbody>
+</table>
+
+<h4>Type-Aware Reset on Uncheck</h4>
+<table>
+    <thead>
+        <tr><th>Variable type</th><th>Reset value</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>boolean</td><td><code>false</code></td></tr>
+        <tr><td>number</td><td><code>0</code></td></tr>
+        <tr><td>string</td><td><code>""</code> (empty string)</td></tr>
+    </tbody>
+</table>
+
+<h4>Examples</h4>
+<pre><code>{checkbox: state.has_sword} Has Sword            ← toggles true/false
+
+{checkbox: state.occupation, farmer} Farmer      ← sets state.occupation = "farmer"
+{checkbox: state.occupation, blacksmith} Blacksmith</code></pre>
+
+<p>
+    Text after the checkbox tag renders as regular passage content — it is <strong>not</strong> part of the checkbox syntax.
+    Write your label or description as normal text following the <code>{checkbox:...}</code> tag.
+</p>
+
+<h3>Radio Button Groups</h3>
+<p>
+    <strong>Syntax:</strong> <code>{radiogroup}...{endradiogroup}</code> wrapping
+    <code>{radiobutton: state.var, value}</code>
+</p>
+<p>
+    Only one radio button per group can be selected. Group membership is determined by the
+    <code>{radiogroup}...{endradiogroup}</code> wrapper. Selecting a radio button immediately updates
+    the variable and re-renders the side panel (HUD).
+</p>
+<table>
+    <thead>
+        <tr><th>Element</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>{radiogroup}</code></td><td>Opens a radio button group</td></tr>
+        <tr><td><code>{radiobutton: state.var, value}</code></td><td>A single radio option; text after the tag is the label</td></tr>
+        <tr><td><code>{endradiogroup}</code></td><td>Closes the group</td></tr>
+    </tbody>
+</table>
+
+<h4>Example</h4>
+<pre><code>Choose your class:
+{radiogroup}
+{radiobutton: state.class, warrior} Warrior
+{radiobutton: state.class, mage} Mage
+{radiobutton: state.class, rogue} Rogue
+{endradiogroup}</code></pre>
+
+<p>
+    Text after each <code>{radiobutton:...}</code> tag is rendered as regular passage content
+    (can include bold, links, images, etc.) — it is <strong>not</strong> part of the radio syntax.
+    The radio group is displayed as a bordered container with stacked options.
+</p>
+
+<div class="tip">
+    <strong>Tip:</strong> Form elements can be placed anywhere in passage text — including inside the
+    Side Panel node for persistent HUD inputs like character naming or stat toggles.
 </div>
 </section>
 

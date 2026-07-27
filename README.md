@@ -23,6 +23,8 @@ NodeFable gives you a node-graph canvas: drag passages around, draw connections 
 
 Requires Python 3.9+.
 
+### Linux / macOS
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -30,7 +32,16 @@ pip install -r requirements.txt
 ./run_dev.sh
 ```
 
-This starts the server on `http://localhost:8005` and opens the editor in your browser.
+### Windows (PowerShell)
+
+```powershell
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn backend.main:app --host 127.0.0.1 --port 8005
+```
+
+This starts the server on `http://localhost:8005` — open it in your browser to use the editor.
 
 ## How It Works
 

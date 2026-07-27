@@ -47,6 +47,7 @@ const game = {
         this.state = { ...data.variables };
         this.state._visited = {};
         this._originalVars = { ...data.variables };
+        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0 };
         this._history = [];
         this._historyIndex = -1;
         for (const n of data.nodes) {
@@ -75,6 +76,55 @@ const game = {
 
         document.getElementById('save-load-overlay').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) this.hideSaveLoad();
+        });
+
+        // Form element event delegation
+        document.getElementById('app').addEventListener('change', (e) => {
+            const el = e.target;
+            if (el.dataset.nfType === 'checkbox') {
+                const varName = el.dataset.targetVar;
+                const value = el.dataset.value;
+                if (value) {
+                    this.state[varName] = el.checked ? value : this._resetVar(varName);
+                } else {
+                    this.state[varName] = !!el.checked;
+                }
+                this._reRender();
+            } else if (el.dataset.nfType === 'radio') {
+                const varName = el.dataset.targetVar;
+                const value = el.value;
+                if (el.checked) {
+                    this.state[varName] = value;
+                    this._reRender();
+                }
+            }
+        });
+
+        document.getElementById('app').addEventListener('input', (e) => {
+            const el = e.target;
+            if (el.dataset.nfType === 'textfield' && el.dataset.commit === 'live') {
+                this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
+            }
+        });
+
+        document.getElementById('app').addEventListener('blur', (e) => {
+            const el = e.target;
+            if (el.dataset.nfType === 'textfield' && el.dataset.commit === 'blur') {
+                this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
+            }
+        }, true);
+
+        document.getElementById('app').addEventListener('keydown', (e) => {
+            const el = e.target;
+            if (el.dataset.nfType === 'textfield' && e.key === 'Enter') {
+                const commit = el.dataset.commit;
+                if (commit === 'onEnterKey' || !commit) {
+                    this.state[el.dataset.targetVar] = el.value;
+                    this._reRender();
+                }
+            }
         });
 
         if (this.loadGame()) { this.updateNavButtons(); return; }
@@ -323,6 +373,13 @@ const game = {
         container.innerHTML = html;
     },
 
+    _resetVar(varName) {
+        const current = this.state[varName];
+        if (typeof current === 'boolean') return false;
+        if (typeof current === 'number') return 0;
+        return '';
+    },
+
     _formatTime(ts) {
         const d = new Date(ts);
         return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
@@ -425,7 +482,27 @@ const game = {
         return text;
     },
 
+    _reRender() {
+        if (!this.currentNodeId) return;
+        const active = document.activeElement;
+        const activeId = active ? active.id : null;
+        const selStart = active && active.selectionStart !== undefined ? active.selectionStart : null;
+        const selEnd = active && active.selectionEnd !== undefined ? active.selectionEnd : null;
+        this.render(this.currentNodeId);
+        if (activeId) {
+            const restored = document.getElementById(activeId);
+            if (restored) {
+                restored.focus();
+                if (selStart !== null && selEnd !== null) {
+                    restored.selectionStart = selStart;
+                    restored.selectionEnd = selEnd;
+                }
+            }
+        }
+    },
+
     render(nodeId) {
+        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0 };
         const node = this.nodes[nodeId];
         if (!node) return;
         this._waitTimeouts?.forEach(t => clearTimeout(t));
@@ -478,6 +555,46 @@ const game = {
         let html = text
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
+
+        // === Form Elements ===
+
+        html = html.replace(/\{textfield:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const stateExpr = parts[0];
+            const varName = stateExpr.replace(/^state\./, '');
+            const hint = parts[1] || '';
+            const commitMode = (parts[2] || 'onEnterKey').trim();
+            const id = 'nf-textfield-' + (this._formCounters.textfield++);
+            const initialValue = this.state[varName] !== undefined ? this.state[varName] : '';
+            const escapedVal = String(initialValue).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedHint = hint.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return '<input type="text" id="' + id + '" class="nf-textfield" value="' + escapedVal + '" placeholder="' + escapedHint + '" data-nf-type="textfield" data-target-var="' + varName + '" data-commit="' + commitMode + '">';
+        });
+
+        html = html.replace(/\{checkbox:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const stateExpr = parts[0];
+            const varName = stateExpr.replace(/^state\./, '');
+            const value = parts[1] ? parts[1].trim() : '';
+            const checked = !!this.state[varName];
+            const id = 'nf-checkbox-' + (this._formCounters.checkbox++);
+            const escapedVal = value.replace(/"/g, '&quot;');
+            return '<input type="checkbox" id="' + id + '" class="nf-checkbox"' + (checked ? ' checked' : '') + ' data-nf-type="checkbox" data-target-var="' + varName + '" data-value="' + escapedVal + '">';
+        });
+
+        html = html.replace(/\{radiogroup\}([\s\S]*?)\{endradiogroup\}/g, (match, body) => {
+            const groupId = 'nf-rg-' + (this._formCounters.radiogroup++);
+            const innerHtml = body.replace(/\{radiobutton:([^}]+)\}\s*/g, (rmatch, rparams) => {
+                const parts = rparams.split(',').map(s => s.trim());
+                const stateExpr = parts[0];
+                const varName = stateExpr.replace(/^state\./, '');
+                const value = parts[1] ? parts[1].trim() : '';
+                const checked = String(this.state[varName]) === value;
+                const escapedVal = value.replace(/"/g, '&quot;');
+                return '<input type="radio" class="nf-radio" name="' + groupId + '" value="' + escapedVal + '"' + (checked ? ' checked' : '') + ' data-nf-type="radio" data-target-var="' + varName + '">';
+            });
+            return '<span class="nf-radiogroup">' + innerHtml + '</span>';
+        });
 
         html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto">');
 

@@ -2,22 +2,94 @@
 
 A self-hosted, visual branching narrative editor for creating interactive fiction where every choice branches the story, changes the world, and shapes the outcome.
 
-NodeFable gives you a node-graph canvas: drag passages around, draw connections between them, and see the entire shape of your story at a glance.
+NodeFable gives you a node-graph canvas: drag passages around, draw connections between them, and see the entire shape of your story at a glance. No database, no lock-in — everything is flat JSON files.
 
 ## Features
 
-- **Visual node editor** -- drag, drop, and connect story nodes on an infinite canvas using Drawflow. See branching paths, dead ends, and loops emerge as you write.
+### Visual Node Editor
 
-  ![Graph Editor](Screenshots/NodeFable%20Graph%20Editor.png)
-- **Built-in narrative engine** -- variables, conditionals (`{if: state.hp > 0}`), inline mutations (`{set: state.gold += 10}`), timed wait sequences, and a HUD side panel. No plugins needed.
+Drag, drop, and connect story nodes on an infinite canvas using Drawflow. See branching paths, dead ends, and loops emerge as you write. Pan by dragging the background, zoom with `Ctrl+Scroll` (0.15x–2.0x), and navigate visually through your entire narrative.
 
-  ![Markdown Editor](Screenshots/NodeFable%20Markdown%20Editor.png)
-- **Live preview** -- click "Preview Game" to play your story in a new tab. Tweak, re-preview, repeat. Fast iteration without exporting.
+![Graph Editor](frontend/editor/Assets/Screenshots/Graph_editor.png)
 
-  ![Game Preview](Screenshots/NodeFable%20Game%20Preview.png)
-- **Standalone export** -- export your story as a ZIP containing a single self-contained HTML file with inlined assets. Send it to friends, host it anywhere, no server required.
-- **No database, no lock-in** -- everything is flat JSON files. Back them up with git, edit them by hand, own your data.
-- **Asset management** -- upload and manage images through the editor UI. Assets are stored alongside your project files.
+### Node Connections
+
+Draw connections between nodes to define choices. Each connection creates a choice link, automatically synced with your passage content. Add prerequisites and mutations per connection for conditional branching.
+
+![Node Connections](frontend/editor/Assets/Screenshots/Graph_editor_Node_connections.png)
+
+### Markdown Code Editor
+
+Full-page CodeMirror editor with syntax highlighting for all NodeFable syntax — `{if:}`, `{set:}`, `{redirect:}`, `{wait:}`, `{dialogue:}`, `{var:}`, and more. Auto-complete node slugs, action IDs, and variable names with `Ctrl+Space`. Supports spellcheck mode and bracket matching.
+
+![Markdown Code Editor](frontend/editor/Assets/Screenshots/Markdown_Code_Editor.png)
+
+### Groups & Portal Nodes
+
+Organize your story into groups (chapters, acts, scenes) with collapsible portal nodes. Right-click to load, collapse, or move groups. Chunked loading with progress indicators for large groups. Dashed SVG lines visualize cross-group connections when collapsed.
+
+![Group Nodes](frontend/editor/Assets/Screenshots/Group_Nodes.png)
+
+### File Explorer
+
+Browse and manage your project assets with a full file explorer. Navigate folders, upload images, rename, delete, copy, cut, and paste files. Multi-select with `Ctrl+Click` for bulk operations.
+
+![File Explorer](frontend/editor/Assets/Screenshots/File_explorer_View.png)
+
+### File Explorer with Groups
+
+Toggle between project file view and group-organized view to manage your narrative structure alongside your assets.
+
+![File Explorer Groups](frontend/editor/Assets/Screenshots/File_explorer_View_Groups.png)
+
+### Asset Explorer
+
+Upload and manage images through the editor UI. Assets are stored alongside your project files. Grid view with thumbnails, folder navigation with breadcrumbs, and one-click copy of markdown syntax for insertion into passages.
+
+![Asset Explorer](frontend/editor/Assets/Screenshots/Asset_explorer.png)
+
+### Live Preview
+
+Click "Preview Game" to play your story in a new tab. Tweak, re-preview, repeat. Fast iteration without exporting. Auto-saves silently before each preview.
+
+![Game Preview](frontend/editor/Assets/Screenshots/NodeFable%20Game%20Preview.png)
+
+### Narrative Engine
+
+Full runtime engine built into the exported game, no plugins needed:
+
+- **Choices & Actions** — `[text](node:slug)` for navigation, `[text](action:id)` for triggers
+- **Conditionals** — `{if: state.hp > 0}...{elseif:}...{else}...{endif}` with arbitrary nesting
+- **Variable Mutations** — `{set: state.gold += 10}` inline or structured in choices/actions/on-enter
+- **Redirects** — `{redirect:slug}` and structured `on_enter` with condition and mutation
+- **Wait Sequences** — `{wait:2000,fade:500}text{endwait}` for timed text reveals
+- **Dialogue Blocks** — `{dialogue: Speaker}text{enddialogue}` with optional avatar images
+- **Form Elements** — `{textfield:}`, `{checkbox:}`, `{radiogroup}` for player input during gameplay
+- **Random Numbers** — `{random:max}` or `{random:min,max}` for chance events
+- **Variable Interpolation** — `{var:state.player_name}` displayed in text
+- **Image Dimensions** — `![alt](url){img:w=200,h=300}` for custom sizing
+- **Notifications** — `notify("message")` and auto-detection of state changes with formatted diffs
+- **Side Panel** — Persistent HUD node rendered alongside all passages
+- **History** — Forward/back navigation with full browsing history stack
+- **Save/Load** — 6 save slots (1 auto + 5 manual) with `localStorage`
+- **Auto Notifications** — State changes auto-display as toast notifications (e.g., "Health +10", "Gold -5")
+
+### Standalone Export
+
+Export your story as a ZIP containing a single self-contained HTML file with inlined assets. Send it to friends, host it anywhere, no server required.
+
+### Additional Editor Features
+
+- **Undo/Redo** — `Ctrl+Z` / `Ctrl+Shift+Z` with 50-snapshot history
+- **Node Search** — Filter nodes by title or slug with 150ms debounce
+- **Dead-End Detection** — Red border on nodes with no outgoing paths
+- **Orphan Detection** — Gold dashed border on unreachable nodes
+- **Visual Badges** — Green border for start node, orange for side panel
+- **Import Nodes** — Paste JSON to import nodes with validation
+- **Slug Change Propagation** — Renaming a slug auto-updates all references
+- **Keyboard Shortcuts** — `Ctrl+S` to save, `Delete` to remove nodes, `Escape` to cancel/close
+- **Context Menu** — Right-click nodes for quick actions
+- **Chunked Loading** — Adaptive batch loading for large stories with progress indicators
 
 ## Quick Start
 
@@ -54,7 +126,12 @@ A node's text can include:
 - `{if: state.gold >= 10}Rich!{else}Broke.{endif}` -- conditional text
 - `{set: state.hp -= 10}` -- inline variable mutation
 - `{wait:2000}...{endwait}` -- timed fade sequences
+- `{dialogue: Bob}Hello!{enddialogue}` -- dialogue blocks with speaker name
 - `{var:state.player_name}` -- variable interpolation
+- `{textfield: state.name, Enter name, onEnterKey}` -- player input field
+- `{checkbox: state.flag, value}` -- toggle checkbox
+- `{random:1,6}` -- random number generation
+- `{redirect: cave_entrance}` -- auto-redirect to another node
 - `![portrait](assets/alex.png){img:w=200}` -- images with optional dimensions
 
 Variables, choices, actions, and on-enter redirects give you the building blocks for complex interactive narratives: stat checks, branching dialogue, timed events, shops, combat, and more.
@@ -62,7 +139,7 @@ Variables, choices, actions, and on-enter redirects give you the building blocks
 ## Tech Stack
 
 - **Backend:** Python, FastAPI, uvicorn
-- **Frontend:** Vanilla JavaScript, Drawflow 0.0.60
+- **Frontend:** Vanilla JavaScript, Drawflow 0.0.60, CodeMirror
 - **Storage:** Flat JSON files (no database)
 - **Dependencies:** fastapi, uvicorn[standard], python-multipart
 
@@ -83,6 +160,8 @@ NodeFable/
       template_styles.css-- Styles for exported games
       styles.css         -- Editor styles
       tutorial.html      -- In-editor tutorial
+      Assets/
+        Screenshots/     -- Project screenshots
   docs/                  -- Technical documentation
   features/              -- Feature implementation plans
   run_dev.sh             -- Development server launcher

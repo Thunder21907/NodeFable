@@ -20,6 +20,7 @@ Reference for writing interactive stories in the NodeFable JSON format.
             "x": 0.0,
             "y": 0.0,
             "is_start": false,
+            "group": "chapter_1",
             "choices": [
                 {
                     "target_node_id": "slug_of_target_node",

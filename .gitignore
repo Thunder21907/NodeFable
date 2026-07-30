@@ -2,6 +2,7 @@ venv/
 __pycache__/
 *.pyc
 backend/data/
+backend/convert_twine.py
 .DS_Store
 *.egg-info/
 dist/

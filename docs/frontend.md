@@ -15,9 +15,17 @@
 | `<meta charset="UTF-8">` | Character encoding |
 | `<meta name="viewport" ...>` | Mobile viewport |
 | `<title>NodeFable - Node Canvas</title>` | Page title |
-| Drawflow CDN script (line 8) | `drawflow.min.js` v0.0.60 |
-| Drawflow CDN stylesheet (line 9) | `drawflow.min.css` v0.0.60 |
-| Google Fonts (line 11) | Inter (weights 400, 600) via `fonts.googleapis.com` |
+| Drawflow script | `lib/drawflow.min.js` v0.0.60 |
+| Drawflow stylesheet | `lib/drawflow.min.css` v0.0.60 |
+| CodeMirror core | `lib/codemirror/codemirror.min.js` v5.65.16 |
+| CodeMirror stylesheet | `lib/codemirror/codemirror.min.css` |
+| CodeMirror hint stylesheet | `lib/codemirror/addon/hint/show-hint.min.css` |
+| CodeMirror theme | `lib/codemirror/theme/material-darker.min.css` (dark) |
+| CodeMirror markdown mode | `lib/codemirror/mode/markdown/markdown.min.js` |
+| CodeMirror hint addon | `lib/codemirror/addon/hint/show-hint.min.js` |
+| CodeMirror overlay addon | `lib/codemirror/addon/mode/overlay.min.js` |
+| CodeMirror matchbrackets addon | `lib/codemirror/addon/edit/matchbrackets.min.js` |
+| Inter Font | `Assets/Fonts/fonts.css` (local `@font-face`) |
 
 ### 1.2 `<body>` Layout
 
@@ -97,10 +105,12 @@
 - `::before` pseudo-element draws a dot-grid background (radial-gradient, 20px spacing, `background-attachment: fixed`)
 - `.drawflow` inside has `transform-origin: 0 0` (performance hack)
 
-**`#tab-markdown`** (lines 113–122):
-- Padding 20px
-- Contains `<textarea id="passage-content">` (flex: 1, no resize)
-- Hint text about `{variable_name}` syntax
+**`#tab-markdown`** (lines 126–135):
+- Contains `<div id="passage-content-editor">` — hosts the CodeMirror 5 instance
+- CodeMirror initialized with custom `nodefable` mode (markdown + NodeFable syntax overlay), `material-darker` theme, line numbers, line wrapping, and matchbrackets
+- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{checkbox:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `state.varname`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` and `[text](action:id)` links
+- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` context), action IDs (in `action:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, etc.)
+- Below: `.helper-text` with link to Tutorial page
 
 ---
 

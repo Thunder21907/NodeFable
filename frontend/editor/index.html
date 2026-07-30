@@ -11,6 +11,15 @@
     <!-- Drawflow -->
     <script src="lib/drawflow.min.js"></script>
     <link rel="stylesheet" href="lib/drawflow.min.css">
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="lib/codemirror/codemirror.min.css">
+    <link rel="stylesheet" href="lib/codemirror/addon/hint/show-hint.min.css">
+    <link rel="stylesheet" href="lib/codemirror/theme/material-darker.min.css">
+    <script src="lib/codemirror/codemirror.min.js"></script>
+    <script src="lib/codemirror/mode/markdown/markdown.min.js"></script>
+    <script src="lib/codemirror/addon/hint/show-hint.min.js"></script>
+    <script src="lib/codemirror/addon/mode/overlay.min.js"></script>
+    <script src="lib/codemirror/addon/edit/matchbrackets.min.js"></script>
     <!-- Inter Font -->
     <link rel="stylesheet" href="Assets/Fonts/fonts.css">
     <style>
@@ -124,14 +133,112 @@
         }
 
         #tab-markdown {
-            padding: 20px;
+            padding: 0;
+            position: relative;
         }
-        #tab-markdown textarea {
+        #tab-markdown .helper-text {
+            padding: 4px 20px 12px;
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #spellcheck-toggle {
+            background: none;
+            border: 1px solid #555;
+            color: #aaa;
+            padding: 2px 10px;
+            font-size: 0.75rem;
+            border-radius: 3px;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+        #spellcheck-toggle:hover {
+            border-color: var(--accent-color);
+            color: #fff;
+        }
+        #spellcheck-toggle.off {
+            opacity: 0.5;
+        }
+        #passage-content-editor {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #passage-content-editor.is-hidden {
+            display: none;
+        }
+        #passage-content-editor .CodeMirror {
+            flex: 1;
+            height: 100%;
+            font-size: 0.925rem;
+            line-height: 1.7;
+        }
+        #passage-content-native {
             flex: 1;
             resize: none;
-            margin-bottom: 0;
-            font-size: 0.95rem;
+            background: #1e1e1e;
+            color: #eeffff;
+            font-family: 'Courier New', monospace;
+            font-size: 0.925rem;
             line-height: 1.7;
+            padding: 4px 8px;
+            border: none;
+            outline: none;
+            margin: 0;
+            box-sizing: border-box;
+        }
+        #passage-content-native.is-hidden {
+            display: none;
+        }
+        #tab-markdown .CodeMirror-gutters {
+            border-right: 1px solid var(--border-color);
+        }
+        #tab-markdown .CodeMirror-linenumber {
+            color: #555;
+        }
+        .cm-s-material-darker .CodeMirror-cursor {
+            border-left: 2px solid var(--accent-color);
+        }
+        .cm-s-material-darker span.cm-keyword { color: #c792ea; }
+        .cm-s-material-darker span.cm-variable-2 { color: #82aaff; }
+        .cm-s-material-darker span.cm-link { color: #89ddff; text-decoration: underline; }
+        .cm-s-material-darker span.cm-string { color: #c3e88d; }
+        .cm-s-material-darker span.cm-builtin { color: #f78c6c; }
+        .cm-s-material-darker span.cm-atom { color: #f78c6c; }
+        .cm-s-material-darker span.cm-number { color: #f78c6c; }
+        .cm-s-material-darker span.cm-comment { color: #546e7a; }
+        .cm-s-material-darker span.cm-formatting-list { color: #89ddff; }
+        .cm-s-material-darker span.cm-formatting-strong { color: #c792ea; }
+        .cm-s-material-darker span.cm-formatting-em { color: #c792ea; }
+        .cm-s-material-darker span.cm-header { color: #f07178; }
+        .cm-s-material-darker span.cm-strong { color: #eeffff; }
+        .cm-s-material-darker span.cm-em { color: #eeffff; }
+        .cm-s-material-darker span.cm-image-alt-text { color: #c3e88d; }
+
+        /* Autocomplete hint dropdown styling */
+        .CodeMirror-hints {
+            background: #1e1e1e;
+            border: 1px solid #444;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            font-size: 0.85rem;
+            font-family: inherit;
+            max-height: 240px;
+        }
+        .CodeMirror-hint {
+            color: #ccc;
+            padding: 4px 10px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .CodeMirror-hint-active {
+            background: #2a3a5c;
+            color: #fff;
+        }
+        .CodeMirror-hint .hint-description {
+            color: #888;
+            margin-left: 12px;
+            font-size: 0.8rem;
         }
 
         #sidebar {
@@ -159,7 +266,7 @@
         }
 
         button {
-            background-color: var(--accent-color);
+            background-color: transparent;
             color: white;
             border: none;
             padding: 8px 16px;
@@ -167,12 +274,16 @@
             cursor: pointer;
             font-weight: 600;
             font-size: 0.85rem;
+            border-bottom: 2px solid transparent;
         }
 
-        button.success { background-color: var(--success-color); }
         button.danger { background-color: var(--danger-color); }
 
-        button:hover { opacity: 0.9; }
+        button:hover {
+            opacity: 0.9;
+            border-bottom-color: var(--accent-color)
+
+        }
         button svg { vertical-align: middle; pointer-events: none; }
 
         .sidebar-section { padding: 20px; }
@@ -292,6 +403,98 @@
             line-height: 1.3;
         }
 
+        /* Tree view */
+        .asset-tree-folder { user-select: none; }
+        .asset-tree-folder-row {
+            display: flex; align-items: center; padding: 4px 4px; cursor: pointer;
+            border-radius: 3px; transition: background 0.15s; font-size: 0.78rem;
+        }
+        .asset-tree-folder-row:hover { background: #3a3a3a; }
+        .asset-tree-toggle {
+            display: inline-block; width: 14px; height: 14px; flex-shrink: 0;
+            text-align: center; font-size: 0.6rem; color: #888; line-height: 14px;
+            transition: transform 0.15s; cursor: pointer;
+        }
+        .asset-tree-toggle.expanded { transform: rotate(90deg); }
+        .asset-tree-folder-icon { margin: 0 4px; flex-shrink: 0; font-size: 0.85rem; }
+        .asset-tree-folder-name { color: #ddd; flex: 1; }
+        .asset-tree-children { display: none; padding-left: 16px; }
+        .asset-tree-children.expanded { display: block; }
+        .asset-tree-file-row {
+            display: flex; align-items: center; padding: 4px 4px; cursor: pointer;
+            border-radius: 3px; transition: background 0.15s; font-size: 0.75rem; position: relative;
+        }
+        .asset-tree-file-row:hover { background: #3a3a3a; }
+        .asset-tree-file-row .asset-preview {
+            width: 22px; height: 22px; object-fit: cover; border-radius: 2px; margin-right: 6px; flex-shrink: 0; background: #1a1a1a;
+        }
+        .asset-tree-file-row .asset-syntax {
+            color: #4ec9b0; font-family: 'Courier New', monospace; line-height: 1.3; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .asset-tree-file-row .asset-delete-btn {
+            position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; padding: 0;
+            background: rgba(231,76,60,0.8); color: #fff; border: none; border-radius: 2px;
+            font-size: 0.6rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.2s; z-index: 2;
+        }
+        .asset-tree-file-row:hover .asset-delete-btn { opacity: 1; }
+        .asset-tree-folder-actions {
+            display: none; gap: 2px; margin-left: auto; flex-shrink: 0;
+        }
+        .asset-tree-folder-row:hover .asset-tree-folder-actions { display: flex; }
+        .asset-tree-folder-actions button {
+            padding: 0 4px; font-size: 0.65rem; background: none; border: none; color: #888; cursor: pointer; border-radius: 2px;
+        }
+        .asset-tree-folder-actions button:hover { color: #fff; background: #555; }
+
+        /* Asset Explorer */
+        #ae-toolbar {
+            display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+            background: #252525; border-bottom: 1px solid var(--border-color); flex-shrink: 0; flex-wrap: wrap;
+        }
+        #ae-toolbar button {
+            padding: 5px 10px; font-size: 0.78rem; background: var(--choice-bg); border: 1px solid var(--border-color);
+            color: #ccc; border-radius: 3px; cursor: pointer; font-weight: 500; transition: background 0.15s, border-color 0.15s;
+        }
+        #ae-toolbar button:hover:not(:disabled) { background: #3a3a3a; border-color: var(--accent-color); color: #fff; }
+        #ae-toolbar button:disabled { opacity: 0.35; cursor: default; }
+        .ae-sep { width: 1px; height: 22px; background: var(--border-color); flex-shrink: 0; }
+        #ae-breadcrumb {
+            display: flex; align-items: center; gap: 2px; padding: 8px 12px;
+            background: #1e1e1e; border-bottom: 1px solid var(--border-color); flex-shrink: 0; font-size: 0.82rem; overflow-x: auto;
+        }
+        .ae-crumb { color: #888; cursor: pointer; padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
+        .ae-crumb:hover { color: var(--accent-color); background: #2a2a2a; }
+        .ae-crumb:last-child { color: #fff; cursor: default; pointer-events: none; }
+        .ae-crumb::after { content: '/'; color: #555; margin-left: 4px; }
+        .ae-crumb:last-child::after { content: ''; }
+        #ae-file-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 10px; padding: 16px; overflow-y: auto; flex: 1; align-content: start;
+        }
+        .ae-grid-item {
+            display: flex; flex-direction: column; align-items: center; padding: 10px 6px 8px;
+            background: var(--choice-bg); border: 1px solid var(--border-color); border-radius: 6px;
+            cursor: pointer; transition: background 0.15s, border-color 0.15s; position: relative;
+        }
+        .ae-grid-item:hover { background: #3a3a3a; border-color: #666; }
+        .ae-grid-item.selected { border-color: var(--accent-color); background: #2a3a5c; }
+        .ae-grid-item .ae-thumb {
+            width: 64px; height: 64px; object-fit: cover; border-radius: 4px;
+            background: #1a1a1a; display: flex; align-items: center; justify-content: center;
+            font-size: 2rem; flex-shrink: 0;
+        }
+        .ae-grid-item .ae-name {
+            font-size: 0.72rem; text-align: center; word-break: break-all; margin-top: 6px;
+            line-height: 1.3; max-height: 2.6em; overflow: hidden; width: 100%; color: #ccc;
+        }
+        .ae-grid-item .ae-size {
+            font-size: 0.6rem; color: #666; margin-top: 2px;
+        }
+        .ae-empty {
+            grid-column: 1 / -1; text-align: center; color: #666; padding: 40px 0; font-size: 0.85rem;
+        }
+
         .var-form {
             background: var(--choice-bg);
             border: 1px solid var(--border-color);
@@ -406,6 +609,78 @@
         body.is-linking .drawflow-node .node-overlay {
             display: none !important;
         }
+
+        .portal-actions {
+            position: absolute;
+            right: -15px;
+            top: -15px;
+            display: flex;
+            gap: 3px;
+            z-index: 4;
+        }
+        .portal-action-btn {
+            width: 26px;
+            height: 26px;
+            background: #000;
+            color: #fff;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 22px;
+            text-align: center;
+            padding: 0;
+            font-family: monospace;
+            transition: transform 0.15s;
+        }
+        .portal-action-btn:hover {
+            transform: scale(1.2);
+        }
+        .portal-action-btn.danger {
+            background: #c0392b;
+        }
+        .node-collapse-btn {
+            position: absolute;
+            left: -18px;
+            top: -15px;
+            z-index: 5;
+            width: 26px;
+            height: 26px;
+            background: #2980b9;
+            color: #fff;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 22px;
+            text-align: center;
+            padding: 0;
+            font-family: monospace;
+            transition: transform 0.15s;
+        }
+        .node-collapse-btn:hover {
+            transform: scale(1.2);
+        }
+        .connection.portal-output .main-path {
+            stroke: var(--accent-color, #f39c12);
+            stroke-dasharray: 5,5;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .p-row {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 29px;
+            line-height: 29px;
+            font-size: 10px;
+            padding: 0 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .p-slug { border-bottom: 1px solid rgba(0,0,0,0.06); }
+        .p-slug:hover { background: rgba(0,0,0,0.05); }
 
         .drawflow .df_canvas { background-color: transparent !important; }
 
@@ -588,8 +863,9 @@
         }
 
         /* --- Inline style extraction helpers --- */
+        .btn-primary { background: var(--accent-color); color: #fff; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 0.85rem; }
+        .btn-primary:hover { filter: brightness(1.2); }
         .btn-secondary { background: #555; }
-        .btn-validate { background: #8e44ad; }
         .btn-refresh { font-size: 0.7rem; padding: 2px 8px; }
         .btn-add-action { font-size: 0.85rem; margin-top: 4px; }
         .btn-block { width: 100%; }
@@ -645,6 +921,7 @@
             padding: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             font-size: 0.85rem;
+            opacity: 0.7;
         }
         .drawflow .drawflow-node.selected {
             border-color: var(--accent-color);
@@ -656,6 +933,100 @@
         .node-side-panel {
             border-left: 4px solid #f39c12 !important;
             background: #2a2a2a;
+        }
+        .node-portal {
+            border-style: dashed !important;
+            opacity: 0.7;
+            min-width: 220px;
+        }
+        .node-portal .drawflow_content_node {
+            text-align: left;
+            padding: 0;
+        }
+        .drawflow .drawflow-node.portal_node {
+            background: #272727;
+            border: 2px solid #3a3a3a;
+            border-radius: 6px;
+            color: #ddd;
+            width: 180px;
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            font-size: 0.85rem;
+        }
+        .drawflow .drawflow-node.portal_node.selected {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 15px rgba(52, 152, 219, 0.3);
+        }
+
+        #group-editor {
+            margin-top: 16px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 16px;
+        }
+        #group-node-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .group-node-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            background: var(--choice-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-size: 0.8rem;
+        }
+        .group-node-item .gn-id {
+            color: var(--accent-color);
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+        .group-node-item .gn-nid {
+            color: var(--text-muted);
+            font-family: monospace;
+            font-size: 0.75rem;
+            margin-right: 8px;
+            min-width: 48px;
+        }
+
+        /* Context menu */
+        #context-menu {
+            position: fixed;
+            z-index: 1001;
+            background: #2d2d2d;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 160px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            display: none;
+        }
+        #context-menu .ctx-item {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            color: #eee;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.1s;
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+        }
+        #context-menu .ctx-item:hover {
+            background: #3a3a3a;
+        }
+        #context-menu .ctx-item.danger {
+            color: var(--danger-color);
+        }
+        #context-menu .ctx-separator {
+            height: 1px;
+            background: var(--border-color);
+            margin: 4px 0;
         }
 
         /* Keyboard focus indicators */
@@ -699,12 +1070,13 @@
         <div class="toolbar">
             <button data-action="addNode">+ Add Node</button>
             <button data-action="importNode">Import Node</button>
-            <button class="success" data-action="showSaveModal">Save Project</button>
+            <button data-action="addGroup">+ Add Group</button>
+            <button data-action="showSaveModal">Save Project</button>
             <button data-action="showLoadModal">Load Project</button>
             <button data-action="exportGame">Export Game</button>
-            <button class="success" data-action="previewGame">Preview Game</button>
-            <button data-action="runValidation" class="btn-validate">Validate</button>
-            <button data-action="openTutorial" class="btn-secondary">Tutorial</button>
+            <button data-action="previewGame">Preview Game</button>
+            <button data-action="runValidation">Validate</button>
+            <button data-action="openTutorial">Tutorial</button>
         </div>
     </header>
 
@@ -732,10 +1104,10 @@
         <div id="asset-section" class="asset-section is-hidden">
             <div class="asset-header">
                 <h2 class="section-title-flush">Assets</h2>
-                <button data-action="loadAssetList" class="btn-refresh btn-secondary" title="Refresh asset list"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M6 7L7 6L4.70711 3.70711L5.19868 3.21553C5.97697 2.43724 7.03256 2 8.13323 2C11.361 2 14 4.68015 14 7.93274C14 11.2589 11.3013 14 8 14C6.46292 14 4.92913 13.4144 3.75736 12.2426L2.34315 13.6569C3.90505 15.2188 5.95417 16 8 16C12.4307 16 16 12.3385 16 7.93274C16 3.60052 12.4903 0 8.13323 0C6.50213 0 4.93783 0.647954 3.78447 1.80132L3.29289 2.29289L1 0L0 1V7H6Z"/></svg></button>
+                <button data-action="refreshAssets" class="btn-refresh btn-secondary" title="Refresh asset list"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M6 7L7 6L4.70711 3.70711L5.19868 3.21553C5.97697 2.43724 7.03256 2 8.13323 2C11.361 2 14 4.68015 14 7.93274C14 11.2589 11.3013 14 8 14C6.46292 14 4.92913 13.4144 3.75736 12.2426L2.34315 13.6569C3.90505 15.2188 5.95417 16 8 16C12.4307 16 16 12.3385 16 7.93274C16 3.60052 12.4903 0 8.13323 0C6.50213 0 4.93783 0.647954 3.78447 1.80132L3.29289 2.29289L1 0L0 1V7H6Z"/></svg></button>
             </div>
             <p class="text-muted-xs">Click to copy markdown syntax</p>
-            <div id="asset-list"></div>
+            <div id="asset-tree"></div>
         </div>
     </aside>
 
@@ -743,11 +1115,33 @@
         <div class="tab-bar">
             <button class="tab-btn active" data-tab="graph">Graph Editor</button>
             <button class="tab-btn" data-tab="markdown">Markdown Editor</button>
+            <button class="tab-btn" data-tab="asset-explorer">Asset Explorer</button>
         </div>
         <div id="tab-graph" class="tab-content active"></div>
         <div id="tab-markdown" class="tab-content">
-            <textarea id="passage-content" placeholder="Write the story passage text here..."></textarea>
-            <div class="helper-text">Need syntax help? Visit the <a href="tutorial.html" target="_blank">Tutorial</a>.</div>
+            <div id="passage-content-editor"></div>
+            <textarea id="passage-content-native" class="is-hidden" spellcheck></textarea>
+            <div class="helper-text">
+                <span>Need syntax help? Visit the <a href="tutorial.html" target="_blank">Tutorial</a>.</span>
+                <button type="button" id="spellcheck-toggle" onclick="toggleSpellcheck()" title="Toggle spellcheck">🔤 <span id="spellcheck-status">ON</span></button>
+            </div>
+        </div>
+        <div id="tab-asset-explorer" class="tab-content">
+            <div id="ae-toolbar">
+                <button data-ae-action="newFolder">+ New Folder</button>
+                <button data-ae-action="upload">↑ Upload</button>
+                <span class="ae-sep"></span>
+                <button data-ae-action="rename" disabled>✏ Rename</button>
+                <button data-ae-action="delete" disabled>🗑 Delete</button>
+                <span class="ae-sep"></span>
+                <button data-ae-action="copy" disabled>📋 Copy</button>
+                <button data-ae-action="cut" disabled>✂ Cut</button>
+                <button data-ae-action="paste" disabled>📌 Paste</button>
+            </div>
+            <div id="ae-breadcrumb">
+                <span class="ae-crumb" data-path="">root</span>
+            </div>
+            <div id="ae-file-grid"></div>
         </div>
     </main>
 
@@ -768,6 +1162,11 @@
                     <input type="checkbox" id="passage-is-start" onchange="toggleStartNode(this.checked)">
                     Starting node (game begins here)
                 </label>
+
+                <label for="passage-group">Group</label>
+                <select id="passage-group" onchange="changeNodeGroup(this.value)">
+                    <option value="">— Ungrouped —</option>
+                </select>
 
                 <div class="md-toolbar">
                     <button type="button" class="md-btn" onclick="insertMarkdown('**','**')" title="Bold"><b>B</b></button>
@@ -801,6 +1200,19 @@
                     <button class="danger" data-action="deleteCurrentNode">Delete Node</button>
                 </div>
             </div>
+
+            <div id="group-editor" class="is-hidden">
+                <h3>Group Editor</h3>
+                <label for="group-editor-id">Group ID</label>
+                <input type="text" id="group-editor-id" placeholder="Group identifier (slug)">
+                <label for="group-editor-label">Group Label</label>
+                <input type="text" id="group-editor-label" placeholder="Display name">
+                <button id="group-editor-save" class="btn-primary" style="width:100%;margin:6px 0 10px 0">Save Group</button>
+                <h3>Nodes in Group</h3>
+                <div id="group-node-list">
+                    <p id="no-group-nodes-msg" class="text-muted-sm">No nodes in this group.</p>
+                </div>
+            </div>
         </div>
     </aside>
 </div>
@@ -810,6 +1222,15 @@
         <div class="spinner"></div>
         <span id="loader-text">Loading...</span>
     </div>
+</div>
+
+<div id="context-menu">
+    <button class="ctx-item" data-ctx-action="loadGroup">📂 Load Group</button>
+    <button class="ctx-item" data-ctx-action="moveToGroup">📌 Move to Group</button>
+    <div class="ctx-separator"></div>
+    <button class="ctx-item danger" data-ctx-action="deleteGroup">🗑 Delete Group</button>
+    <div class="ctx-separator ctx-separator-assign"></div>
+    <button class="ctx-item" data-ctx-action="assignGroup">🏷 Assign to Group</button>
 </div>
 
 <div id="modal-overlay" class="modal-overlay is-hidden">

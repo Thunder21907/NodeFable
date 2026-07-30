@@ -34,6 +34,24 @@ class NodeData(BaseModel):
     actions: List[ActionData] = Field(default_factory=list)
     on_enter: Optional[OnEnter] = Field(None, description="Auto-redirect on entering this node")
     is_start: bool = Field(False, description="If true, this node is the starting point of the game")
+    group: str = Field("side_panel", description="The group this node belongs to")
+
+class GroupInfo(BaseModel):
+    id: str = Field(..., description="Group identifier")
+    label: str = Field(..., description="Human-readable group label")
+    node_count: int = Field(0, description="Number of nodes in this group")
+    slug_ids: List[str] = Field(default_factory=list, description="List of node slugs in this group")
+
+class ManifestSchema(BaseModel):
+    name: str = Field(..., description="Project name")
+    version: int = Field(2, description="Schema version")
+    variables: Dict[str, VariableValue] = Field(default_factory=dict)
+    groups: List[GroupInfo] = Field(default_factory=list, description="List of groups")
+    node_to_group: Dict[str, str] = Field(default_factory=dict, description="Node slug → group ID mapping")
+
+class GroupDataSchema(BaseModel):
+    group_id: str = Field(..., description="Group identifier")
+    nodes: List[NodeData] = Field(default_factory=list)
 
 class ProjectSchema(BaseModel):
     variables: Dict[str, VariableValue] = Field(default_factory=dict)

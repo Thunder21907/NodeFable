@@ -13,7 +13,7 @@
 | `editor` | `Drawflow` | The Drawflow canvas instance |
 | `selectedNodeId` | `number \| null` | Currently selected node's Drawflow numeric ID |
 | `linkingFromId` | `number \| null` | Node ID from which a link is being drawn |
-| `nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, actions, slug, on_enter, is_start}` |
+| `nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, actions, slug, on_enter, is_start, group}` |
 | `slugToNodeId` | `object` | Slug → Drawflow numeric ID reverse lookup |
 | `variables` | `object` | Keyed by variable name → `{type, value}` |
 | `isEditingVariable` | `boolean` | True while the variable form is in edit mode |
@@ -29,6 +29,14 @@
 | `undoStack` | `array` | Snapshot history for undo |
 | `redoStack` | `array` | Snapshot history for redo |
 | `undoInProgress` | `boolean` | Prevents re-snapshotting during undo/restore |
+| `aeCurrentPath` | `string` | Current folder path in Asset Explorer (empty = root) |
+| `aeClipboard` | `object \| null` | `{action: "copy"|"cut", path: "..."}` for copy/paste operations |
+| `aeSelectedPaths` | `Set<string>` | Set of currently selected file paths in Asset Explorer grid |
+| `cmEditor` | `CodeMirror` | CodeMirror 5 instance for the markdown editor (`#passage-content-editor`) |
+| `groupsManifest` | `object \| null` | Loaded project manifest with groups list, node_to_group mapping |
+| `portalNodeIds` | `object` | Group ID → Drawflow portal node ID mapping |
+| `loadedGroupIds` | `Set` | Set of group IDs that have been loaded as full nodes |
+| `groupNodeIds` | `object` | Group ID → array of Drawflow node IDs for loaded groups | |
 
 ---
 
@@ -40,9 +48,9 @@
 2. Creates `new Drawflow(container)` and calls `editor.start()`.
 3. Monkey-patches `editor.updateConnectionNodes` with a last-call-wins RAF throttle (avoids layout thrashing during drag, bypassed during `isLoading`).
 4. Sets `zoom_max = 2.0`, `zoom_min = 0.15`, `zoom_value = 0.05`, `curvature = 0.3`.
-5. Calls `setupEditorEvents()`, `setupTabs()`, `setupModalEvents()`, `setupSearch()`.
+5. Calls `setupEditorEvents()`, `setupTabs()`, `setupModalEvents()`, `setupSearch()`, `setupContextMenu()`.
 6. Registers a `mousedown` listener on the container for Drawflow panning fix.
-7. Registers blur listener on `#passage-content` for auto-save.
+7. Initializes CodeMirror 5 on `#passage-content-editor` with the custom `nodefable` mode (markdown + NodeFable syntax overlay). Registers a `change` listener that auto-saves content to `nodesData[selectedNodeId].text`.
 8. Registers global `keydown` listener for keyboard shortcuts (Ctrl+S, Ctrl+Z/Y, Delete, Escape).
 9. Calls `ensureSidePanelNode()` after 100ms delay.
 
@@ -229,7 +237,7 @@ Wraps selected text with formatting markers.
 
 ### `insertImage()`
 
-Requires `currentProjectName`. Uploads file to `POST /api/assets/{name}`, inserts `![alt](url)` at cursor, refreshes asset list. Optionally append `{img:w=200,h=300}` after the closing `)` to set custom image dimensions (see `docs/guide.md`).
+Requires `currentProjectName`. Uploads file to `POST /api/assets/{name}/upload`, inserts `![alt](url)` at cursor, calls `refreshAssets()`. Optionally append `{img:w=200,h=300}` after the closing `)` to set custom image dimensions (see `docs/guide.md`).
 
 ### `insertAction()`
 
@@ -267,17 +275,80 @@ Full CRUD for global variables with type-specific parsing (int, float, bool, str
 
 ## Asset Management
 
-### `loadAssetList()`
+### `refreshAssets()`
 
-Async. Fetches `GET /api/assets/{name}`. If assets exist, renders each with thumbnail, syntax string, and delete button (✕). Clicking an asset copies its syntax. Clicking ✕ calls `deleteAsset()`.
+Async. Fetches `GET /api/assets/{name}` (returns tree). Calls `renderAssetTree()` for left panel. If Asset Explorer tab is active, also calls `renderAssetExplorer()`. Hides `#asset-section` if no assets.
 
-### `window.copyAssetSyntax(el)`
+### `renderAssetTree(nodes, container, parentPath)`
 
-Copies `.asset-syntax` text to clipboard with green flash feedback.
+Recursively renders tree view into `#asset-tree`. Folders show a toggle (▶) and 📁 icon. Files show thumbnail, syntax string, and delete button. Folder rows have inline "new folder" and "upload" buttons.
 
-### `deleteAsset(filename)`
+### `renderAssetTreeChildren(nodes, parentPath)`
 
-Async. Confirms with user, sends `DELETE /api/assets/{name}/{filename}`, refreshes asset list in `finally` block. Shows toast on success.
+Recursive helper that returns HTML string for child nodes (used inside expandable containers).
+
+### `getEntriesAtPath(tree, path)`
+
+Walks the tree array following `path.split('/')` to find folder children. Returns `[]` on missing folder.
+
+### `renderAssetExplorer(tree)`
+
+Entry point for Asset Explorer tab rendering. Calls `renderBreadcrumb()` and `renderAEGrid()`.
+
+### `renderBreadcrumb(path)`
+
+Renders clickable breadcrumb segments from `aeCurrentPath`. Each segment navigates via `aeNavigate()`.
+
+### `renderAEGrid(entries)`
+
+Renders grid view in `#ae-file-grid`. Folders show 📁 icon. Image files show thumbnail; other files show 📄. Displays file size. Clicking a folder navigates into it.
+
+### `updateAEToolbar()`
+
+Enables/disables Rename (only when exactly 1 selected), Delete/Copy/Cut (when ≥1 selected), Paste (when clipboard has items).
+
+### `aeNavigate(path)`
+
+Sets `aeCurrentPath`, clears selection, calls `refreshAssets()`.
+
+### `aeNewFolder(targetPath)`
+
+Prompts for name, sends `POST /api/assets/{name}/folder`, refreshes.
+
+### `aeUpload(targetPath)`
+
+Opens file picker (multi-file), uploads each to `POST /api/assets/{name}/upload` with folder param, refreshes.
+
+### `aeDelete()`
+
+Iterates all paths in `aeSelectedPaths`, sends `DELETE` for each. Shows combined toast with total deleted count. Clears selection.
+
+### `aeRename()`
+
+Operates on the single selected path (no-op if 0 or >1 selected). Prompts for new name, sends `PUT /api/assets/{name}/rename`, refreshes.
+
+### `aeCopy()`
+
+Stores all selected paths as `aeClipboard = {action: "copy", paths: [...]}`.
+
+### `aeCut()`
+
+Stores all selected paths as `aeClipboard = {action: "cut", paths: [...]}`.
+
+### `aePaste()`
+
+Iterates all clipboard paths, copies or moves each to `aeCurrentPath`. Clears clipboard after cut. Shows combined toast.
+
+### `renderAEGrid(entries)`
+
+Renders grid with `aeSelectedPaths` determining which items have the `selected` CSS class.
+
+### Grid interaction (delegation)
+
+- **Click on empty area** — clears all selections
+- **Ctrl+Click / Meta+Click on file** — toggles selection (multi-select)
+- **Click on file (no modifier)** — clears previous, selects only that item
+- **Click on folder** — navigates into it (clears selection)
 
 ---
 
@@ -413,7 +484,7 @@ Decrements counter. Hides overlay when count reaches 0.
 
 Creates a fixed bottom-center toast element that auto-dismisses after 2 seconds with fade-out.
 
-**Used in:** `confirmSave()` ("Saving..." / "Project saved!"), `confirmLoad()` ("Loading..." / "Loaded: ..."), `previewGame()` ("Generating preview..."), `exportGame()` ("Exporting..."), `deleteAsset()` ("Deleted: ..."), undo/redo.
+**Used in:** `confirmSave()` ("Saving..." / "Project saved!"), `confirmLoad()` ("Loading..." / "Loaded: ..."), `previewGame()` ("Generating preview..."), `exportGame()` ("Exporting..."), `aeDelete()` / `aeRename()` / `aePaste()` / `aeNewFolder()`, undo/redo.
 
 ---
 
@@ -433,9 +504,9 @@ Serialized in both `confirmSave()` and `saveProjectSilent()`. Loaded in `confirm
 
 ## Markdown Auto-Save (Feature 10)
 
-- `blur` listener on `#passage-content` syncs text to `nodesData[selectedNodeId].text`.
+- CodeMirror `change` listener syncs text to `nodesData[selectedNodeId].text`.
 - `openPassageEditor()` with `skipDirtyCheck` calls `saveCurrentContent()` on the previous node before switching.
-- `saveProjectSilent()` and `confirmSave()` sync textarea content at the top.
+- `saveProjectSilent()` and `confirmSave()` sync CM editor content at the top via `cmEditor.getValue()`.
 
 ---
 
@@ -509,24 +580,74 @@ click on target node
        └─ cancelLinking()
 ```
 
-### Loading a project
+### Loading a project (new group-aware flow)
 
 ```
 confirmLoad()
   ├─ undoStack = []; redoStack = []
-  ├─ sync textarea content
-  ├─ fetch /api/load?name=...
+  ├─ fetch /api/load/manifest?name=...        ← manifest only (lightweight)
+  ├─ restore variables from manifest
+  ├─ fetch /api/load?name=...&groups=side_panel  ← only side_panel nodes
   ├─ isLoading = true
   ├─ editor.removeNodeId(...) for each existing node
-  ├─ nodesData = {}, slugToNodeId = {}
-  ├─ first pass: editor.addNode(...) each node, populate nodesData (with is_start)
-  ├─ second pass: editor.addConnection(...) for each choice
-  ├─ deduplicateActionIds()
+  ├─ nodesData = {}, slugToNodeId = {}, groupsManifest = manifest
+  ├─ first pass: editor.addNode(...) side_panel nodes
+  ├─ second pass: editor.addConnection(...) for side_panel choices
+  ├─ createPortalNode(group) for every other group  ← portals on canvas
   ├─ isLoading = false
   ├─ updateStartBadgeOnCanvas() for all nodes
   ├─ requestAnimationFrame → validateDeadEnds(), validateOrphans(), re-apply search
   └─ ensureSidePanelNode()
 ```
+
+### Loading a group (from portal)
+
+```
+loadGroupFromPortal(portalNodeId)
+  ├─ fetch /api/load?name=...&groups=chapter_1  ← full node data
+  ├─ editor.removeNodeId('portal') and clean up
+  ├─ createNodesBatched(nodes, batchSize=50)    ← RAF-chunked
+  │    └─ editor.addNode(...) per node, populates nodesData + slugToNodeId
+  ├─ editor.addConnection(...) for each choice
+  ├─ loadedGroupIds.add(groupId)
+  ├─ editor.updateConnectionNodes(...) for all nodes
+  ├─ updateStartBadgeOnCanvas() for all nodes
+  └─ validateDeadEnds(); validateOrphans()
+```
+
+### Portal nodes
+
+Portal nodes (`.node-portal`) represent unloaded groups on the canvas. They have dashed borders, dimmed appearance, and a portal icon. Selecting a portal opens the group editor (right sidebar) showing group name/label fields and a list of nodes in the group.
+
+Right-click context menu on portals: **Load Group**, **Move to Group**, **Delete Group**. Right-click on normal nodes shows **Delete Node**.
+
+### Group management
+
+| Function | Purpose |
+|---|---|
+| `addGroup()` | Creates a new group + portal node, adds to `groupsManifest` |
+| `openGroupEditor(nodeId)` | Shows group editor panel for a portal node |
+| `renderGroupNodeList(groupId)` | Renders the node list inside the group editor |
+| `populateGroupDropdown()` | Populates the group dropdown in passage editor from `groupsManifest` |
+| `changeNodeGroup(newGroup)` | Called on group dropdown change, updates `nodesData[].group` |
+| `createPortalNode(group, x, y)` | Creates a Drawflow portal node with metadata |
+| `loadGroupFromPortal(nodeId)` | Loads a group's full nodes, replaces portal |
+| `moveToGroupFromPortal(nodeId)` | Unloads all groups, loads selected group |
+| `deleteGroupFromPortal(nodeId)` | Removes portal + updates manifest |
+| `contextMenuTargetId` | Stores the node ID that was right-clicked |
+
+### Chunked rendering
+
+```
+createNodesBatched(nodes, onNodeCreated, batchSize=50)
+  ─ Returns Promise<slugToDrawflowId>
+  ─ Adds nodes in batches via requestAnimationFrame
+  ─ Used by loadGroupFromPortal for large group loads
+```
+
+### Deferred overlay injection
+
+`injectOverlayToNode(nodeId, deferred=true)` — when `deferred` is true, the overlay (Edit/Delete/Link buttons) is only injected on first mouseenter, not at node creation time. Reduces DOM work during large project loads.
 
 ### Exporting
 
@@ -536,3 +657,88 @@ exportGame()
   ├─ await saveProjectSilent()
   └─ window.location.href = /api/export/{name}
 ```
+
+---
+
+## Converter: Twine → NodeFable
+
+File: `backend/convert_twine.py`
+
+Converts SugarCube (Twine 2) HTML stories to NodeFable project JSON.
+
+### Usage
+
+```sh
+python3 backend/convert_twine.py
+```
+
+Output: `backend/data/TherapistRemastered/project.json`
+
+### Pipeline Overview
+
+The converter implements a 10-phase pipeline:
+
+| Phase | Function(s) | Purpose |
+|-------|-------------|---------|
+| 1 | `convert_say_macros`, `convert_mcsay`, `convert_mcthink` | Dialogue/thought formatting |
+| 1 | `convert_links`, `convert_link_macro`, `convert_goto` | `[text](node:slug)` links |
+| 1 | `convert_set_macro`, `convert_run_macro`, `convert_if_macro` | `{set:}`, `{if:}` blocks |
+| 1 | `convert_textbox`, `convert_radiobutton` | Form elements |
+| 2 | `convert_time_macros` | Time/calendar → `{set:}` chains |
+| 3 | `expand_stat_widgets` | Recursive widget expansion for stat macros |
+| 4 | `convert_location_links` | Location link widgets |
+| 5 | `convert_nextlink_widgets` | Next-link widgets |
+| 6 | `convert_check_widgets` | Random event `Check*` widgets |
+| 7 | `convert_dynamic_links` | Dynamic link list placeholders |
+| 8 | `collect_init_mutations` | Init mutations for Start node |
+| 9 | `convert_character_macros` | Character dialogue and face images |
+| 10 | `convert_images`, `convert_video_fallback` | Image/video asset references |
+
+### Key Conversions
+
+| SugarCube | NodeFable |
+|-----------|-----------|
+| `<<if $x gt 5>>` | `{if: state.x > 5}` |
+| `<<set $x to 10>>` | `{set: state.x = 10}` |
+| `<<run State.setVar("x",v)>>` | `{set: state.x = v}` |
+| `<<link "text" "target">>` | `[text](node:slug)` |
+| `[[text\|passage]]` | `[text](node:slug)` |
+| `<<goto "passage">>` | `{redirect: node:slug}` |
+| `random(a,b)` | `(Math.floor(Math.random() * (b - a + 1)) + a)` |
+| `previous()` | `state._previous` |
+| `setup.numberOr(v,d)` | `((typeof v === "number") ? v : d)` |
+| `Math.clamp(x,mn,mx)` | `Math.max(mn, Math.min(mx, x))` |
+| `<<textbox "$x" d>>` | `{textfield: state.x, d}` |
+| `<<radiobutton "$x" v>>` | `{radiobutton: state.x, v}` |
+| `<<addHours N>>` | `{set: hour += N}{if: hour >= 24}...{endif}` |
+| `$$varname` | `$state.varname` (literal `$` preserved) |
+
+### Widget Expansion Strategy
+
+Widgets (from `<<widget "Name">>...<</widget>>`) are expanded inline at conversion time:
+
+- **Stat widgets** (e.g., `AddSexCorrRep`, `UpdateCanDoFlags`): Recursively expanded with argument substitution. Must contain `_args[N]`, `<<set`, `<<run`, or `<<if` to qualify.
+- **Location widgets** (e.g., `BarLink`, `HomeLink`): Converted to `{if:} [link](node:)` patterns.
+- **Next-link widgets** (e.g., `ParkNextLinkOrShocked`): Converted to direct links.
+- **Check widgets** (`Check*`): Limited expansion to `{if: random:}` + `{redirect:}`.
+- **Compute widgets**: Stat/computation widgets expanded to `{set:}`/`{if:}` chains.
+- **Unrecognized**: Left as `[MacroName: args]` placeholders.
+
+### Known Limitations
+
+- Videos: `<<video>>` remains as `[Video: filename]` placeholder. Only still images from `[img[...]]` are embedded.
+- Dynamic links: `<<FirstDynamicLink>>`, `Activities`, dynamic `<<include>>` → `[Activities:]` placeholder.
+- Complex DOM: `BuyClothesTable`, `WardrobeTable`, `ComputeClothesStats` → `[MacroName:]` placeholder.
+- `<<for>>` loops: Stripped (body content preserved).
+- `<<script>>` blocks: Stripped entirely.
+- Temp variables (`_varname`): Expanded as `state._varname` when part of known widget chains.
+- `state._previous` must be tracked at runtime to make `previous()` work — not implemented.
+- `Math.trunc` and standard JS Math functions work in the template engine.
+
+### Limitations per-pass
+
+- `<<for>>` loops: 701 stripped
+- `[Video:]` placeholders: 1952
+- `[link:]` placeholders: 2
+- `[Activities:]` placeholders: 9
+- Complex widget placeholders: 3

@@ -51,6 +51,7 @@ const game = {
         this.state._visited = {};
         this._originalVars = JSON.parse(JSON.stringify(data.variables));
         this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
+        this._actionBlocks = [];
         this._history = [];
         this._historyIndex = -1;
         for (const n of data.nodes) {
@@ -70,10 +71,10 @@ const game = {
                 if (!link.classList.contains('disabled')) this.navigateTo(link.dataset.node, parseInt(link.dataset.choiceIndex));
                 return;
             }
-            link = e.target.closest('a[data-action]');
+            link = e.target.closest('a[data-action-block]');
             if (link) {
                 e.preventDefault();
-                if (!link.classList.contains('disabled')) this.applyAction(link.dataset.action);
+                if (!link.classList.contains('disabled')) this.applyActionBlock(parseInt(link.dataset.actionBlock, 10));
             }
         });
 
@@ -179,25 +180,17 @@ const game = {
         this.autoSave();
     },
 
-    applyAction(actionId) {
-        let action = (this._activeActions || []).find(a => a.id === actionId);
-        if (!action && this.sidePanelNodeId) {
-            const sideNode = this.nodes[this.sidePanelNodeId];
-            action = ((this._sidePanelActiveActions || sideNode.actions || [])).find(a => a.id === actionId);
-        }
-        if (!action) return;
-
+    applyActionBlock(idx) {
+        const body = (this._actionBlocks || [])[idx];
+        if (body == null) return;
         const before = this.snapshotState();
-        for (const pair of action.pairs || []) {
-            let met = true;
-            if (pair.condition) {
-                met = this._evalBool(pair.condition);
-            }
-            if (met) {
-                this._evalMutation(pair.mutation, (msg) => this.notify(msg));
-            }
+        const out = this._processDirectives(body, false);
+        const redirect = this._checkRedirects(out.text);
+        if (redirect && this.nodes[redirect]) {
+            this.autoSave();
+            this.render(redirect);
+            return;
         }
-        //this.detectChanges(before);
         if (this.currentNodeId) this.render(this.currentNodeId);
         this.autoSave();
     },
@@ -208,9 +201,7 @@ const game = {
             const sideNode = this.nodes[this.sidePanelNodeId];
             const text = this._preprocessText(sideNode.text || '');
             const mergedChoices = (sideNode.choices || []).concat(this._includedChoices);
-            const mergedActions = (sideNode.actions || []).concat(this._includedActions);
-            this._sidePanelActiveActions = mergedActions;
-            el.innerHTML = this.renderContent(text, mergedChoices, mergedActions);
+            el.innerHTML = this.renderContent(text, mergedChoices);
         } else {
             el.innerHTML = '';
         }
@@ -480,7 +471,6 @@ const game = {
         this._includeCount = 0;
         this._includeLimitNotified = false;
         this._includedChoices = [];
-        this._includedActions = [];
         return this._processDirectives(text, false).text;
     },
 
@@ -502,6 +492,29 @@ const game = {
                 if (inLoop) return { text: out, signal: 'continue' };
                 out += '{continue}';
                 i += 10;
+                continue;
+            }
+            if (rest.startsWith('{action:')) {
+                const am = rest.match(/^\{action:\s*([^}]*)\}/i);
+                const closePos = text.indexOf('{endaction}', i + am[0].length);
+                if (closePos === -1) { out += '{action:'; i += 8; continue; }
+                const params = am[1].trim();
+                const body = text.slice(i + am[0].length, closePos);
+                const idx = this._actionBlocks.length;
+                this._actionBlocks.push(body);
+                const parts = params.split(',').map(p => p.trim());
+                const label = parts[0] || 'action';
+                let disabled = false;
+                if (parts[1]) {
+                    disabled = !this._evalBool(parts[1]);
+                }
+                const behavior = (parts[2] || 'disable').toLowerCase();
+                if (disabled && behavior === 'hide') {
+                    i = closePos + 11;
+                    continue;
+                }
+                out += '<a href="#" data-action-block="' + idx + '"' + (disabled ? ' class="disabled"' : '') + '>' + label + '</a>';
+                i = closePos + 11;
                 continue;
             }
             if ((m = rest.match(/^\{set:\s*([^}]+)\}/))) {
@@ -533,7 +546,6 @@ const game = {
                 this._includeCount++;
                 if (!this._inInit) {
                     this._includedChoices.push(...(target.choices || []));
-                    this._includedActions.push(...(target.actions || []));
                 }
                 const r = this._processDirectives(target.text || '', inLoop);
                 out += r.text;
@@ -885,6 +897,7 @@ const game = {
 
     render(nodeId) {
         this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
+        this._actionBlocks = [];
         const node = this.nodes[nodeId];
         if (!node) return;
         this._waitTimeouts?.forEach(t => clearTimeout(t));
@@ -918,10 +931,8 @@ const game = {
         this.currentNodeId = nodeId;
         let text = resolved.replace(/\{redirect:([^}]+)\}/g, '');
         const mergedChoices = (node.choices || []).concat(this._includedChoices);
-        const mergedActions = (node.actions || []).concat(this._includedActions);
         this._activeChoices = mergedChoices;
-        this._activeActions = mergedActions;
-        document.getElementById('passage-content').innerHTML = this.renderContent(text, mergedChoices, mergedActions);
+        document.getElementById('passage-content').innerHTML = this.renderContent(text, mergedChoices);
         this.renderSidePanel();
         this.runWaitSequences();
     },
@@ -946,7 +957,7 @@ const game = {
         return out;
     },
 
-    renderContent(text, choices, actions) {
+    renderContent(text, choices) {
         choices = choices || [];
         actions = actions || [];
         text = text.replace(/\{random:(\d+)(?:,(\d+))?\}/g, (_, a, b) => {
@@ -1082,24 +1093,6 @@ const game = {
             }
             const cls = disabled ? ' class="disabled"' : '';
             return '<a href="#" data-node="' + slug + '" data-choice-index="' + choiceIdx + '"' + cls + '>' + text + '</a>';
-        });
-
-        html = html.replace(/\[([^\]]*)\]\(action:([^)]+)\)/g, (match, text, actionId) => {
-            const action = actions.find(a => a.id === actionId);
-            let disabled = true;
-            if (action && action.pairs && action.pairs.length > 0) {
-                for (const pair of action.pairs) {
-                    if (!pair.condition) { disabled = false; break; }
-                    try {
-                        if (new Function('state', 'temp', 'try { return ' + this._norm(pair.condition) + '; } catch(e) { return false; }')(this.state, this.temp)) {
-                            disabled = false; break;
-                        }
-                    } catch {}
-                }
-            }
-            const displayText = action ? action.text : text;
-            const cls = disabled ? ' class="disabled"' : '';
-            return '<a href="#" data-action="' + actionId + '"' + cls + '>' + displayText + '</a>';
         });
 
         html = html.replace(/\[([^\]]*)\]\([^)]+\)/g, '$1');

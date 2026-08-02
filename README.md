@@ -20,7 +20,7 @@ Draw connections between nodes to define choices. Each connection creates a choi
 
 ### Markdown Code Editor
 
-Full-page CodeMirror editor with syntax highlighting for all NodeFable syntax — `{if:}`, `{set:}`, `{redirect:}`, `{wait:}`, `{dialogue:}`, `{var:}`, and more. Auto-complete node slugs, action IDs, and variable names with `Ctrl+Space`. Supports spellcheck mode and bracket matching.
+Full-page CodeMirror editor with syntax highlighting for all NodeFable syntax — `{if:}`, `{set:}`, `{while:}`, `{for:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{include:}`, `{var:}`, and more. Auto-complete node slugs, action IDs, variable names, and keywords with `Ctrl+Space`. Supports spellcheck mode and bracket matching.
 
 ![Markdown Code Editor](frontend/editor/Assets/Screenshots/Markdown_Code_Editor.png)
 
@@ -44,7 +44,7 @@ Toggle between project file view and group-organized view to manage your narrati
 
 ### Asset Explorer
 
-Upload and manage images through the editor UI. Assets are stored alongside your project files. Grid view with thumbnails, folder navigation with breadcrumbs, and one-click copy of markdown syntax for insertion into passages.
+Upload and manage images and videos through the editor UI. Assets are stored alongside your project files. Grid view with thumbnails, folder navigation with breadcrumbs, and one-click copy of `{img: url, alt=...}` (image) or `{video: url}` (video) syntax for insertion into passages.
 
 ![Asset Explorer](frontend/editor/Assets/Screenshots/Asset_explorer.png)
 
@@ -58,16 +58,21 @@ Click "Preview Game" to play your story in a new tab. Tweak, re-preview, repeat.
 
 Full runtime engine built into the exported game, no plugins needed:
 
-- **Choices & Actions** — `[text](node:slug)` for navigation, `[text](action:id)` for triggers
+- **Choices & Actions** — `[text](node:slug)` for navigation, `[text](action:id)` for triggers, with per-choice/action conditions and mutations
 - **Conditionals** — `{if: state.hp > 0}...{elseif:}...{else}...{endif}` with arbitrary nesting
-- **Variable Mutations** — `{set: state.gold += 10}` inline or structured in choices/actions/on-enter
+- **Loops** — `{while: cond}...{endwhile}`, `{do}...{while: cond}`, and C-style `{for: init; cond; update}...{endfor}`, with `{break}` and `{continue}`
+- **Variable Mutations** — `{set: state.gold += 10}` inline or structured in choices/actions/on-enter; `{unset: state.name}` deletes a variable
+- **Scratch Variables** — `temp.*` for short-lived values that never persist to saves
 - **Redirects** — `{redirect:slug}` and structured `on_enter` with condition and mutation
+- **Passage Includes** — `{include: slug}` splices another passage's text in, merging its choices and actions
+- **One-Time Setup** — `{init}...{endinit}` runs mutations once per fresh entry and produces no output
 - **Wait Sequences** — `{wait:2000,fade:500}text{endwait}` for timed text reveals
-- **Dialogue Blocks** — `{dialogue: Speaker}text{enddialogue}` with optional avatar images
-- **Form Elements** — `{textfield:}`, `{checkbox:}`, `{radiogroup}` for player input during gameplay
+- **Dialogue Blocks** — `{dialogue: Name}text{enddialogue}` with optional image avatars (`{dialogue: {img: url}, Name}`)
+- **Images** — `{img: url, w=200, h=300, alt=...}` with optional pixel dimensions and alt text
+- **Video** — `{video: url, autoplay, repeat, mute, w=480, h=270}` native player with controls
+- **Form Elements** — `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}` for player input during gameplay
 - **Random Numbers** — `{random:max}` or `{random:min,max}` for chance events
 - **Variable Interpolation** — `{var:state.player_name}` displayed in text
-- **Image Dimensions** — `![alt](url){img:w=200,h=300}` for custom sizing
 - **Notifications** — `notify("message")` and auto-detection of state changes with formatted diffs
 - **Side Panel** — Persistent HUD node rendered alongside all passages
 - **History** — Forward/back navigation with full browsing history stack
@@ -121,25 +126,33 @@ Stories are composed of **nodes** (passages) connected by **choices**. Each node
 
 A node's text can include:
 
-- `[Go to forest](node:forest)` -- a choice link to another node
-- `[Bribe guard](action:a0)` -- an action link that triggers variable changes
-- `{if: state.gold >= 10}Rich!{else}Broke.{endif}` -- conditional text
-- `{set: state.hp -= 10}` -- inline variable mutation
-- `{wait:2000}...{endwait}` -- timed fade sequences
-- `{dialogue: Bob}Hello!{enddialogue}` -- dialogue blocks with speaker name
-- `{var:state.player_name}` -- variable interpolation
-- `{textfield: state.name, Enter name, onEnterKey}` -- player input field
-- `{checkbox: state.flag, value}` -- toggle checkbox
-- `{random:1,6}` -- random number generation
-- `{redirect: cave_entrance}` -- auto-redirect to another node
-- `![portrait](assets/alex.png){img:w=200}` -- images with optional dimensions
+- `[Go to forest](node:forest)` — a choice link to another node
+- `[Bribe guard](action:a0)` — an action link that triggers variable changes
+- `{if: state.gold >= 10}Rich!{else}Broke.{endif}` — conditional text
+- `{for: state.i = 0; state.i < 3; state.i += 1}{var: state.i}{endfor}` — C-style loops
+- `{while: state.hp > 0}...{endwhile}` — conditional loops
+- `{set: state.hp -= 10}` — inline variable mutation
+- `{wait:2000}...{endwait}` — timed fade sequences
+- `{dialogue: Bob}Hello!{enddialogue}` — dialogue blocks with speaker name
+- `{img: assets/alex.png, w=200}` — images with optional dimensions
+- `{video: assets/rain.mp4, w=480, autoplay=false}` — video player
+- `{include: prologue}` — splice another passage into this one
+- `{init}...{endinit}` — one-time setup block
+- `{var:state.player_name}` — variable interpolation
+- `{textfield: state.name, Enter name, onEnterKey}` — single-line player input
+- `{textarea: state.bio, Your story..., blur, 5}` — multiline input
+- `{number: state.age, 1, 150}` — numeric stepper
+- `{dropdown: state.class, warrior, mage, rogue}` — option picker
+- `{checkbox: state.flag, value}` — toggle checkbox
+- `{random:1,6}` — random number generation
+- `{redirect: cave_entrance}` — auto-redirect to another node
 
 Variables, choices, actions, and on-enter redirects give you the building blocks for complex interactive narratives: stat checks, branching dialogue, timed events, shops, combat, and more.
 
 ## Tech Stack
 
 - **Backend:** Python, FastAPI, uvicorn
-- **Frontend:** Vanilla JavaScript, Drawflow 0.0.60, CodeMirror
+- **Frontend:** Vanilla JavaScript (ES modules), Drawflow 0.0.60, CodeMirror
 - **Storage:** Flat JSON files (no database)
 - **Dependencies:** fastapi, uvicorn[standard], python-multipart
 
@@ -155,15 +168,16 @@ NodeFable/
   frontend/
     editor/
       index.html         -- Editor application page
-      app.js             -- Editor logic (Drawflow, state management)
+      app.js             -- Entry point that imports the editor's ES modules
+      js/                -- ES modules (state, node editor, graph engine, asset explorer, ...)
+      lib/               -- Vendored libraries (CodeMirror 5, Drawflow)
       template.html      -- Export/preview game template
       template_styles.css-- Styles for exported games
-      styles.css         -- Editor styles
       tutorial.html      -- In-editor tutorial
       Assets/
         Screenshots/     -- Project screenshots
   docs/                  -- Technical documentation
-  features/              -- Feature implementation plans
+  features/              -- Feature implementation plans (local, not committed)
   run_dev.sh             -- Development server launcher
   requirements.txt       -- Python dependencies
 ```

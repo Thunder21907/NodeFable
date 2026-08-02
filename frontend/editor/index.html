@@ -1091,7 +1091,17 @@
                 <option value="float">float</option>
                 <option value="string">String</option>
                 <option value="bool">bool</option>
+                <option value="array">array</option>
             </select>
+            <div id="var-elem-type-wrap" class="is-hidden">
+                <select id="var-elem-type">
+                    <option value="string">String</option>
+                    <option value="int">int</option>
+                    <option value="float">float</option>
+                    <option value="bool">bool</option>
+                </select>
+                <p class="text-muted-xs">Element type — values are comma-separated.</p>
+            </div>
             <input type="text" id="var-value" placeholder="Initial value">
             <div class="form-actions">
                 <button id="var-submit-btn" data-action="addVariable" class="flex-1">Add</button>
@@ -1123,7 +1133,7 @@
             <textarea id="passage-content-native" class="is-hidden" spellcheck></textarea>
             <div class="helper-text">
                 <span>Need syntax help? Visit the <a href="tutorial.html" target="_blank">Tutorial</a>.</span>
-                <button type="button" id="spellcheck-toggle" onclick="toggleSpellcheck()" title="Toggle spellcheck">🔤 <span id="spellcheck-status">ON</span></button>
+                <button type="button" id="spellcheck-toggle" class="off" onclick="toggleSpellcheck()" title="Toggle spellcheck">🔤 <span id="spellcheck-status">OFF</span></button>
             </div>
         </div>
         <div id="tab-asset-explorer" class="tab-content">
@@ -1263,6 +1273,6 @@
     </div>
 </div>
 
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

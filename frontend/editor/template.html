@@ -41,13 +41,16 @@ const game = {
     nodes: {},
     startNode: null,
     sidePanelNodeId: null,
+    _freshEntry: false,
+    _inInit: false,
+    temp: {},
 
     init(data) {
         this.projectName = data.name;
         this.state = { ...data.variables };
         this.state._visited = {};
-        this._originalVars = { ...data.variables };
-        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0 };
+        this._originalVars = JSON.parse(JSON.stringify(data.variables));
+        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
         this._history = [];
         this._historyIndex = -1;
         for (const n of data.nodes) {
@@ -97,20 +100,28 @@ const game = {
                     this.state[varName] = value;
                     this._reRender();
                 }
+            } else if (el.dataset.nfType === 'dropdown') {
+                this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
             }
         });
 
         document.getElementById('app').addEventListener('input', (e) => {
             const el = e.target;
-            if (el.dataset.nfType === 'textfield' && el.dataset.commit === 'live') {
+            if ((el.dataset.nfType === 'textfield' || el.dataset.nfType === 'textarea') && el.dataset.commit === 'live') {
                 this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
+            }
+            if (el.dataset.nfType === 'number') {
+                if (el.value === '') return;
+                this.state[el.dataset.targetVar] = el.valueAsNumber;
                 this._reRender();
             }
         });
 
         document.getElementById('app').addEventListener('blur', (e) => {
             const el = e.target;
-            if (el.dataset.nfType === 'textfield' && el.dataset.commit === 'blur') {
+            if ((el.dataset.nfType === 'textfield' || el.dataset.nfType === 'textarea') && el.dataset.commit === 'blur') {
                 this.state[el.dataset.targetVar] = el.value;
                 this._reRender();
             }
@@ -142,23 +153,20 @@ const game = {
 
     navigateTo(slug, choiceIndex) {
         const node = this.currentNodeId ? this.nodes[this.currentNodeId] : null;
+        const choices = this._activeChoices || (node ? (node.choices || []) : []);
         let choice;
         if (!isNaN(choiceIndex)) {
-            choice = node ? (node.choices || [])[choiceIndex] : null;
+            choice = choices[choiceIndex];
         } else {
-            choice = node ? (node.choices || []).find(c => c.target_node_id === slug) : null;
+            choice = choices.find(c => c.target_node_id === slug);
         }
 
         if (choice && choice.prerequisite) {
-            try {
-                if (!new Function('state', 'try { return ' + choice.prerequisite + '; } catch(e) { return false; }')(this.state)) return;
-            } catch { return; }
+            if (!this._evalBool(choice.prerequisite)) return;
         }
         const before = this.snapshotState();
         if (choice && choice.mutation) {
-            try {
-                new Function('state', 'notify', choice.mutation)(this.state, (msg) => this.notify(msg));
-            } catch {}
+            this._evalMutation(choice.mutation, (msg) => this.notify(msg));
         }
         if (this.nodes[slug]) this.render(slug);
         if (this._historyIndex < this._history.length - 1) {
@@ -172,11 +180,10 @@ const game = {
     },
 
     applyAction(actionId) {
-        const node = this.currentNodeId ? this.nodes[this.currentNodeId] : null;
-        let action = node ? (node.actions || []).find(a => a.id === actionId) : null;
+        let action = (this._activeActions || []).find(a => a.id === actionId);
         if (!action && this.sidePanelNodeId) {
             const sideNode = this.nodes[this.sidePanelNodeId];
-            action = sideNode ? (sideNode.actions || []).find(a => a.id === actionId) : null;
+            action = ((this._sidePanelActiveActions || sideNode.actions || [])).find(a => a.id === actionId);
         }
         if (!action) return;
 
@@ -184,19 +191,13 @@ const game = {
         for (const pair of action.pairs || []) {
             let met = true;
             if (pair.condition) {
-                try {
-                    met = !!new Function('state', 'try { return ' + pair.condition + '; } catch(e) { return false; }')(this.state);
-                } catch { met = false; }
+                met = this._evalBool(pair.condition);
             }
             if (met) {
-                try {
-                    new Function('state', 'notify', pair.mutation)(this.state, (msg) => this.notify(msg));
-                } catch (e) {
-                    console.warn('Mutation failed:', e);
-                }
+                this._evalMutation(pair.mutation, (msg) => this.notify(msg));
             }
         }
-        this.detectChanges(before);
+        //this.detectChanges(before);
         if (this.currentNodeId) this.render(this.currentNodeId);
         this.autoSave();
     },
@@ -205,7 +206,11 @@ const game = {
         const el = document.getElementById('side-panel-content');
         if (this.sidePanelNodeId && this.nodes[this.sidePanelNodeId]) {
             const sideNode = this.nodes[this.sidePanelNodeId];
-            el.innerHTML = this.renderContent(this._preprocessText(sideNode.text || ''), sideNode.choices || [], sideNode.actions || []);
+            const text = this._preprocessText(sideNode.text || '');
+            const mergedChoices = (sideNode.choices || []).concat(this._includedChoices);
+            const mergedActions = (sideNode.actions || []).concat(this._includedActions);
+            this._sidePanelActiveActions = mergedActions;
+            el.innerHTML = this.renderContent(text, mergedChoices, mergedActions);
         } else {
             el.innerHTML = '';
         }
@@ -292,6 +297,7 @@ const game = {
         if (!save) return false;
         if (!save.state || !save.currentNodeId) return false;
         this.state = save.state;
+        this.temp = {};
         // Merge missing original variables (new vars added since the save was created)
         for (const [key, defaultVal] of Object.entries(this._originalVars || {})) {
             if (!(key in this.state)) {
@@ -302,6 +308,7 @@ const game = {
         this._history = save._history || [save.currentNodeId];
         this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
         this.renderSidePanel();
+        this.currentNodeId = save.currentNodeId;
         if (this.nodes[save.currentNodeId]) {
             this.render(save.currentNodeId);
         } else if (this.startNode) {
@@ -401,6 +408,7 @@ const game = {
         const save = this._loadFromStorage(keys[index]);
         if (!save) { this.notify('Slot is empty.'); return; }
         this.state = save.state;
+        this.temp = {};
         // Merge missing original variables (new vars added since the save was created)
         for (const [key, defaultVal] of Object.entries(this._originalVars || {})) {
             if (!(key in this.state)) {
@@ -467,17 +475,391 @@ const game = {
         if (forwardBtn) forwardBtn.disabled = this._historyIndex >= this._history.length - 1;
     },
 
-    _executeMutations(text) {
-        return text.replace(/\{set:([^}]+)\}/g, (_, expr) => {
-            try { new Function('state', 'notify', expr.trim())(this.state, (msg) => this.notify(msg)); }
-            catch (e) { console.warn('Mutation failed:', e); }
-            return '';
-        });
+    processDirectives(text) {
+        this._varValues = [];
+        this._includeCount = 0;
+        this._includeLimitNotified = false;
+        this._includedChoices = [];
+        this._includedActions = [];
+        return this._processDirectives(text, false).text;
+    },
+
+    _processDirectives(text, inLoop) {
+        let out = '';
+        let i = 0;
+        const n = text.length;
+        while (i < n) {
+            if (text[i] !== '{') { out += text[i]; i++; continue; }
+            const rest = text.slice(i);
+            let m;
+            if (rest.startsWith('{break}')) {
+                if (inLoop) return { text: out, signal: 'break' };
+                out += '{break}';
+                i += 7;
+                continue;
+            }
+            if (rest.startsWith('{continue}')) {
+                if (inLoop) return { text: out, signal: 'continue' };
+                out += '{continue}';
+                i += 10;
+                continue;
+            }
+            if ((m = rest.match(/^\{set:\s*([^}]+)\}/))) {
+                this._evalMutation(m[1].trim(), (msg) => this.notify(msg));
+                i += m[0].length;
+                continue;
+            }
+            if ((m = rest.match(/^\{unset:\s*((?:state|temp)\.\w+|temp)\}/))) {
+                const target = m[1].trim();
+                if (target === 'temp') {
+                    this.temp = {};
+                } else if (target.startsWith('state.')) {
+                    delete this.state[target.slice(6)];
+                } else {
+                    delete this.temp[target.slice(5)];
+                }
+                i += m[0].length;
+                continue;
+            }
+            if ((m = rest.match(/^\{include:\s*([^}]+)\}/i))) {
+                const slug = m[1].trim();
+                const target = this.nodes[slug];
+                i += m[0].length;
+                if (!target) { out += m[0]; continue; }
+                if (this._includeCount >= 100) {
+                    if (!this._includeLimitNotified) { this.notify('Include limit exceeded.'); this._includeLimitNotified = true; }
+                    continue;
+                }
+                this._includeCount++;
+                if (!this._inInit) {
+                    this._includedChoices.push(...(target.choices || []));
+                    this._includedActions.push(...(target.actions || []));
+                }
+                const r = this._processDirectives(target.text || '', inLoop);
+                out += r.text;
+                if (r.signal) return { text: out, signal: r.signal };
+                continue;
+            }
+            if ((m = rest.match(/^\{var:?\s*((?:state|temp)\.\w+(?:\[[^\]]+\])?(?:\.size)?)\}/))) {
+                const val = this._evalValue(m[1]);
+                if (val === undefined) {
+                    out += m[0];
+                } else {
+                    const idx = this._varValues.length;
+                    this._varValues.push(Array.isArray(val) ? val.join(', ') : String(val));
+                    out += '\u0000nfvar_' + idx + '\u0000';
+                }
+                i += m[0].length;
+                continue;
+            }
+            if (rest.startsWith('{for:')) {
+                const block = this._findForEnd(text, i);
+                if (block) {
+                    out += this._runFor(block.init, block.condition, block.update, block.body);
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{while:')) {
+                const block = this._findWhileEnd(text, i);
+                if (block) {
+                    out += this._runWhile(block.body, block.condition);
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{do}')) {
+                const block = this._findDoWhileEnd(text, i);
+                if (block) {
+                    out += this._runDoWhile(block.body, block.condition);
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{init}')) {
+                const block = this._findInitEnd(text, i);
+                if (block) {
+                    if (this._freshEntry && !inLoop && !this._inInit) {
+                        this._inInit = true;
+                        try { this._processDirectives(block.body, false); } finally { this._inInit = false; }
+                    }
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{if:')) {
+                const parsed = this._parseIfBranches(text, i);
+                if (parsed) {
+                    const selected = this._selectIfBranch(parsed, text);
+                    if (selected !== null) {
+                        const r = this._processDirectives(selected, inLoop);
+                        out += r.text;
+                        if (r.signal) return { text: out, signal: r.signal };
+                    }
+                    i = parsed.endIndex;
+                    continue;
+                }
+            }
+            out += text[i];
+            i++;
+        }
+        return { text: out, signal: null };
+    },
+
+    _selectIfBranch(parsed, text) {
+        const endifPos = parsed.endIndex - 7;
+        let selected = null;
+        for (let b = 0; b < parsed.branches.length; b++) {
+            const branch = parsed.branches[b];
+            if (branch.type === 'endif') break;
+            let match = false;
+            if (branch.type === 'else') {
+                match = true;
+            } else {
+                match = this._evalBool(branch.condition);
+            }
+            if (match) {
+                const nextTagStart = (b + 1 < parsed.branches.length) ? parsed.branches[b + 1].tagStart : endifPos;
+                selected = text.slice(branch.tagEnd, nextTagStart);
+                break;
+            }
+        }
+        return selected;
+    },
+
+    _parseIfBranches(text, i) {
+        const rest = text.slice(i);
+        const m = rest.match(/^\{if:\s*([^}]*)\}/);
+        if (!m) return null;
+        let branches = [];
+        branches.push({ type: 'if', condition: m[1].trim(), tagEnd: i + m[0].length });
+        let depth = 1;
+        let j = i + m[0].length;
+        let endifPos = -1;
+        const n = text.length;
+        while (j < n && depth > 0) {
+            if (text[j] === '{') {
+                if (text.slice(j, j + 4) === '{if:') { depth++; j += 4; }
+                else if (text.slice(j, j + 7) === '{endif}') {
+                    depth--;
+                    if (depth === 0) { endifPos = j; branches.push({ type: 'endif', tagStart: j }); }
+                    j += 7;
+                }
+                else if (depth === 1) {
+                    if (text.slice(j, j + 8) === '{elseif:') {
+                        let eStart = j + 8;
+                        if (text[eStart] === ' ') eStart++;
+                        const eEnd = text.indexOf('}', eStart);
+                        if (eEnd !== -1) {
+                            branches.push({ type: 'elseif', condition: text.slice(eStart, eEnd).trim(), tagStart: j, tagEnd: eEnd + 1 });
+                            j = eEnd + 1;
+                            continue;
+                        }
+                    }
+                    else if (text.slice(j, j + 6) === '{else}') {
+                        branches.push({ type: 'else', tagStart: j, tagEnd: j + 6 });
+                        j += 6;
+                        continue;
+                    }
+                }
+            }
+            j++;
+        }
+        if (endifPos === -1) return null;
+        return { branches, endIndex: endifPos + 7 };
+    },
+
+    _runWhile(body, condition) {
+        let out = '';
+        let guard = 0;
+        while (this._evalBool(condition)) {
+            if (++guard > 1000) { this.notify('Loop limit exceeded.'); break; }
+            const r = this._processDirectives(body, true);
+            out += r.text;
+            if (r.signal === 'break') return out;
+            if (r.signal === 'continue') continue;
+        }
+        return out;
+    },
+
+    _runDoWhile(body, condition) {
+        let out = '';
+        let guard = 0;
+        do {
+            if (++guard > 1000) { this.notify('Loop limit exceeded.'); break; }
+            const r = this._processDirectives(body, true);
+            out += r.text;
+            if (r.signal === 'break') return out;
+            if (r.signal === 'continue') continue;
+        } while (this._evalBool(condition));
+        return out;
+    },
+
+    _runFor(init, condition, update, body) {
+        let out = '';
+        let guard = 0;
+        this._evalMutation(init, (msg) => this.notify(msg));
+        while (this._evalBool(condition)) {
+            if (++guard > 1000) { this.notify('Loop limit exceeded.'); break; }
+            const r = this._processDirectives(body, true);
+            out += r.text;
+            if (r.signal === 'break') return out;
+            this._evalMutation(update, (msg) => this.notify(msg));
+            if (r.signal === 'continue') continue;
+        }
+        return out;
+    },
+
+    _findWhileEnd(text, i) {
+        const m = text.slice(i).match(/^\{while:\s*([^}]+)\}/);
+        if (!m) return null;
+        const condition = m[1].trim();
+        const bodyStart = i + m[0].length;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{do}')) {
+                const nb = this._findDoWhileEnd(text, j);
+                if (!nb) return null;
+                j = nb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{endwhile}')) {
+                if (depth === 0) {
+                    return { body: text.slice(bodyStart, j), condition, end: j + 10 };
+                }
+                depth--;
+                j += 10;
+                continue;
+            }
+            if (text.slice(j).startsWith('{while:')) {
+                const tm = text.slice(j).match(/^\{while:[^}]*\}/);
+                if (!tm) { j++; continue; }
+                depth++;
+                j += tm[0].length;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _findDoWhileEnd(text, i) {
+        const bodyStart = i + 4;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{do}')) {
+                const nb = this._findDoWhileEnd(text, j);
+                if (!nb) return null;
+                j = nb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{for:')) {
+                const fb = this._findForEnd(text, j);
+                if (!fb) { j++; continue; }
+                j = fb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{endwhile}')) {
+                if (depth === 0) return null;
+                depth--;
+                j += 10;
+                continue;
+            }
+            if (text.slice(j).startsWith('{while:')) {
+                const tm = text.slice(j).match(/^\{while:[^}]*\}/);
+                if (!tm) { j++; continue; }
+                if (depth === 0) {
+                    const condition = tm[0].slice(7, -1).trim();
+                    return { body: text.slice(bodyStart, j), condition, end: j + tm[0].length };
+                }
+                depth++;
+                j += tm[0].length;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _findInitEnd(text, i) {
+        if (text.slice(i, i + 6) !== '{init}') return null;
+        const bodyStart = i + 6;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{init}')) { depth++; j += 6; continue; }
+            if (text.slice(j).startsWith('{endinit}')) {
+                if (depth === 0) return { body: text.slice(bodyStart, j), end: j + 9 };
+                depth--;
+                j += 9;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _findForEnd(text, i) {
+        const m = text.slice(i).match(/^\{for:\s*([^}]+)\}/);
+        if (!m) return null;
+        const parts = m[1].split(';').map(s => s.trim());
+        if (parts.length < 3) return null;
+        const bodyStart = i + m[0].length;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{do}')) {
+                const nb = this._findDoWhileEnd(text, j);
+                if (!nb) return null;
+                j = nb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{for:')) {
+                const tm = text.slice(j).match(/^\{for:[^}]*\}/);
+                if (!tm) { j++; continue; }
+                depth++;
+                j += tm[0].length;
+                continue;
+            }
+            if (text.slice(j).startsWith('{endfor}')) {
+                if (depth === 0) return { body: text.slice(bodyStart, j), init: parts[0], condition: parts[1], update: parts[2], end: j + 8 };
+                depth--;
+                j += 8;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _norm(expr) {
+        return (expr || '').replace(/((?:state|temp)\.\w+)\.size\b/g, '$1.length');
+    },
+
+    _evalBool(expr) {
+        try {
+            return !!new Function('state', 'temp', 'try { return ' + this._norm(expr) + '; } catch(e) { return false; }')(this.state, this.temp);
+        } catch { return false; }
+    },
+
+    _evalMutation(expr, notify) {
+        try { new Function('state', 'notify', 'temp', this._norm(expr))(this.state, notify, this.temp); }
+        catch (e) { console.warn('Mutation failed:', e); }
+    },
+
+    _evalValue(expr) {
+        try { return new Function('state', 'temp', 'return ' + this._norm(expr))(this.state, this.temp); }
+        catch { return undefined; }
     },
 
     _preprocessText(text) {
-        text = this.processConditionals(text);
-        text = this._executeMutations(text);
+        text = this.processDirectives(text);
         text = text.replace(/\{redirect:([^}]+)\}/g, '');
         return text;
     },
@@ -502,17 +884,18 @@ const game = {
     },
 
     render(nodeId) {
-        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0 };
+        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
         const node = this.nodes[nodeId];
         if (!node) return;
         this._waitTimeouts?.forEach(t => clearTimeout(t));
         this._waitTimeouts = [];
         this._tailElements = null;
 
-        const resolved = this.processConditionals(node.text || '');
+        this._freshEntry = nodeId !== this.currentNodeId || this.currentNodeId == null;
+        if (this._freshEntry) this.temp = {};
+        const resolved = this.processDirectives(node.text || '');
         const redirectSlug = this._checkRedirects(resolved);
         if (redirectSlug) {
-            this._executeMutations(resolved);
             this.render(redirectSlug);
             return;
         }
@@ -520,15 +903,11 @@ const game = {
         if (node.on_enter && node.on_enter.target_node_id) {
             let shouldRedirect = true;
             if (node.on_enter.condition) {
-                try {
-                    shouldRedirect = !!new Function('state', 'try { return ' + node.on_enter.condition + '; } catch(e) { return false; }')(this.state);
-                } catch { shouldRedirect = false; }
+                shouldRedirect = this._evalBool(node.on_enter.condition);
             }
             if (shouldRedirect && this.nodes[node.on_enter.target_node_id]) {
                 if (node.on_enter.mutation) {
-                    try {
-                        new Function('state', node.on_enter.mutation)(this.state);
-                    } catch {}
+                    this._evalMutation(node.on_enter.mutation);
                 }
                 this.render(node.on_enter.target_node_id);
                 return;
@@ -537,11 +916,34 @@ const game = {
 
         this.state._visited[nodeId] = true;
         this.currentNodeId = nodeId;
-        let text = this._executeMutations(resolved);
-        text = text.replace(/\{redirect:([^}]+)\}/g, '');
-        document.getElementById('passage-content').innerHTML = this.renderContent(text, node.choices || [], node.actions || []);
+        let text = resolved.replace(/\{redirect:([^}]+)\}/g, '');
+        const mergedChoices = (node.choices || []).concat(this._includedChoices);
+        const mergedActions = (node.actions || []).concat(this._includedActions);
+        this._activeChoices = mergedChoices;
+        this._activeActions = mergedActions;
+        document.getElementById('passage-content').innerHTML = this.renderContent(text, mergedChoices, mergedActions);
         this.renderSidePanel();
         this.runWaitSequences();
+    },
+
+    _parseMediaOptions(params) {
+        const out = { target: '', w: '', h: '', alt: '', autoplay: true, repeat: true, mute: false };
+        const parts = params.split(',');
+        out.target = (parts.shift() || '').trim();
+        parts.forEach(p => {
+            const eqI = p.indexOf('=');
+            const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+            const rawVal = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+            if (key === 'w' && /^\d/.test(rawVal)) out.w = parseInt(rawVal, 10);
+            else if (key === 'h' && /^\d/.test(rawVal)) out.h = parseInt(rawVal, 10);
+            else if (key === 'alt') {
+                if (rawVal !== '' && !rawVal.includes(',') && !rawVal.includes('}') && !rawVal.includes('"')) out.alt = rawVal;
+            }
+            else if (key === 'autoplay') out.autoplay = rawVal === '' || rawVal.toLowerCase() !== 'false';
+            else if (key === 'repeat') out.repeat = rawVal === '' || rawVal.toLowerCase() !== 'false';
+            else if (key === 'mute') out.mute = rawVal === '' || rawVal.toLowerCase() !== 'false';
+        });
+        return out;
     },
 
     renderContent(text, choices, actions) {
@@ -555,6 +957,12 @@ const game = {
         let html = text
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
+
+        const legacyImages = [];
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)(?:\{img:[^}]*\})?/g, (m) => {
+            legacyImages.push(m);
+            return '\u0000nflegacy_' + (legacyImages.length - 1) + '\u0000';
+        });
 
         // === Form Elements ===
 
@@ -596,17 +1004,64 @@ const game = {
             return '<span class="nf-radiogroup">' + innerHtml + '</span>';
         });
 
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto">');
+        html = html.replace(/\{textarea:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const varName = parts[0].replace(/^state\./, '');
+            const hint = parts[1] || '';
+            const commitMode = (parts[2] || 'blur').trim();
+            const rows = parts[3] || 3;
+            const id = 'nf-textarea-' + (this._formCounters.textarea++);
+            const value = this.state[varName] !== undefined ? this.state[varName] : '';
+            const escapedVal = String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedHint = hint.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return '<textarea id="' + id + '" class="nf-textarea" rows="' + rows + '" placeholder="' + escapedHint + '" data-nf-type="textarea" data-target-var="' + varName + '" data-commit="' + commitMode + '">' + escapedVal + '</textarea>';
+        });
 
-        html = html.replace(/(<img[^>]*style=")([^"]+)(">)\s*\{img:([^}]*)\}/g, (match, before, style, after, params) => {
-            params.split(',').forEach(p => {
-                const parts = p.split('=');
-                const key = parts[0].trim();
-                const val = parts[1] ? parts[1].trim() : '';
-                if (key === 'w' && val) style += ';width:' + val + 'px';
-                if (key === 'h' && val) style += ';height:' + val + 'px';
-            });
-            return before + style + after;
+        html = html.replace(/\{number:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const varName = parts[0].replace(/^state\./, '');
+            const min = parts[1] ? ' min="' + parts[1] + '"' : '';
+            const max = parts[2] ? ' max="' + parts[2] + '"' : '';
+            const step = parts[3] ? ' step="' + parts[3] + '"' : '';
+            const id = 'nf-number-' + (this._formCounters.number++);
+            const initial = this.state[varName] !== undefined ? this.state[varName] : '';
+            return '<input type="number" id="' + id + '" class="nf-number"' + min + max + step + ' value="' + initial + '" data-nf-type="number" data-target-var="' + varName + '">';
+        });
+
+        html = html.replace(/\{dropdown:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const varName = parts[0].replace(/^state\./, '');
+            const options = parts.slice(1);
+            const id = 'nf-dropdown-' + (this._formCounters.dropdown++);
+            const opts = options.map(o => {
+                const v = o.replace(/"/g, '&quot;');
+                const sel = String(this.state[varName]) === o ? ' selected' : '';
+                return '<option value="' + v + '"' + sel + '>' + v + '</option>';
+            }).join('');
+            return '<select id="' + id + '" class="nf-dropdown" data-nf-type="dropdown" data-target-var="' + varName + '">' + opts + '</select>';
+        });
+
+        html = html.replace(/\{img:([^}]+)\}/g, (match, params) => {
+            const o = this._parseMediaOptions(params);
+            const alt = o.alt ? ' alt="' + o.alt.replace(/"/g, '&quot;') + '"' : '';
+            return '<img src="' + o.target + '"' + alt + ' style="max-width:100%;height:auto'
+                + (o.w ? ';width:' + o.w + 'px' : '')
+                + (o.h ? ';height:' + o.h + 'px' : '')
+                + '">';
+        });
+
+        html = html.replace(/\{video:([^}]+)\}/g, (match, params) => {
+            const o = this._parseMediaOptions(params);
+            const aria = o.alt ? ' aria-label="' + o.alt.replace(/"/g, '&quot;') + '"' : '';
+            return '<video src="' + o.target + '" class="nf-video" controls preload="metadata"' + aria
+                + ' style="max-width:100%;height:auto'
+                + (o.w ? ';width:' + o.w + 'px' : '')
+                + (o.h ? ';height:' + o.h + 'px' : '')
+                + '"'
+                + (o.autoplay ? ' autoplay' : '')
+                + (o.repeat ? ' loop' : '')
+                + (o.mute ? ' muted' : '')
+                + '></video>';
         });
 
         const consumed = {};
@@ -622,7 +1077,7 @@ const game = {
             let disabled = false;
             if (choice && choice.prerequisite) {
                 try {
-                    disabled = !new Function('state', 'try { return ' + choice.prerequisite + '; } catch(e) { return false; }')(this.state);
+                    disabled = !new Function('state', 'temp', 'try { return ' + this._norm(choice.prerequisite) + '; } catch(e) { return false; }')(this.state, this.temp);
                 } catch { disabled = true; }
             }
             const cls = disabled ? ' class="disabled"' : '';
@@ -636,7 +1091,7 @@ const game = {
                 for (const pair of action.pairs) {
                     if (!pair.condition) { disabled = false; break; }
                     try {
-                        if (new Function('state', 'try { return ' + pair.condition + '; } catch(e) { return false; }')(this.state)) {
+                        if (new Function('state', 'temp', 'try { return ' + this._norm(pair.condition) + '; } catch(e) { return false; }')(this.state, this.temp)) {
                             disabled = false; break;
                         }
                     } catch {}
@@ -694,103 +1149,12 @@ const game = {
                 '<div class="dialogue-text">' + bodyHtml + '</div>' +
             '</div>';
         });
-        html = html
-            .replace(/\{var:?\s*state\.(\w+)\}/g, (_, name) => {
-                const val = this.state[name];
-                return val !== undefined ? String(val) : '{var:state.' + name + '}';
-            });
-        return '<p>' + html + '</p>';
-    },
-
-    processConditionals(text) {
-        let output = '';
-        let i = 0;
-        while (i < text.length) {
-            if (text[i] === '{' && text.slice(i, i + 4) === '{if:') {
-                let condStart = i + 4;
-                if (text[condStart] === ' ') condStart++;
-                let condEnd = text.indexOf('}', condStart);
-                if (condEnd === -1) {
-                    output += text.slice(i);
-                    break;
-                }
-                let condition = text.slice(condStart, condEnd).trim();
-
-                let branches = [];
-                branches.push({ type: 'if', condition, tagEnd: condEnd + 1 });
-
-                let depth = 1;
-                let j = condEnd + 1;
-                let endifPos = -1;
-
-                while (j < text.length && depth > 0) {
-                    if (text[j] === '{') {
-                        if (text.slice(j, j + 4) === '{if:') {
-                            depth++;
-                            j += 4;
-                        } else if (text.slice(j, j + 7) === '{endif}') {
-                            depth--;
-                            if (depth === 0) {
-                                endifPos = j;
-                                branches.push({ type: 'endif', tagStart: j });
-                            }
-                            j += 7;
-                        } else if (depth === 1) {
-                            if (text.slice(j, j + 8) === '{elseif:') {
-                                let eStart = j + 8;
-                                if (text[eStart] === ' ') eStart++;
-                                let eEnd = text.indexOf('}', eStart);
-                                if (eEnd !== -1) {
-                                    branches.push({ type: 'elseif', condition: text.slice(eStart, eEnd).trim(), tagStart: j, tagEnd: eEnd + 1 });
-                                    j = eEnd + 1;
-                                    continue;
-                                }
-                            } else if (text.slice(j, j + 6) === '{else}') {
-                                branches.push({ type: 'else', tagStart: j, tagEnd: j + 6 });
-                                j += 6;
-                                continue;
-                            }
-                        }
-                    }
-                    j++;
-                }
-
-                if (endifPos === -1) {
-                    output += text.slice(i);
-                    break;
-                }
-
-                let selected = null;
-                for (let b = 0; b < branches.length; b++) {
-                    const branch = branches[b];
-                    if (branch.type === 'endif') break;
-
-                    let match = false;
-                    if (branch.type === 'else') {
-                        match = true;
-                    } else {
-                        try {
-                            match = !!new Function('state', 'try { return ' + branch.condition + '; } catch(e) { return false; }')(this.state);
-                        } catch { match = false; }
-                    }
-
-                    if (match) {
-                        const nextTagStart = (b + 1 < branches.length) ? branches[b + 1].tagStart : endifPos;
-                        selected = text.slice(branch.tagEnd, nextTagStart);
-                        break;
-                    }
-                }
-
-                if (selected !== null) {
-                    output += this.processConditionals(selected);
-                }
-                i = endifPos + 7;
-            } else {
-                output += text[i];
-                i++;
-            }
-        }
-        return output;
+        html = html.replace(/\u0000nflegacy_(\d+)\u0000/g, (_, n) => legacyImages[parseInt(n, 10)]);
+        html = html.replace(/\u0000nfvar_(\d+)\u0000/g, (_, n) => {
+            const val = this._varValues[parseInt(n, 10)];
+            return val === undefined ? '' : String(val);
+        });
+            return '<p>' + html + '</p>';
     },
 
     _checkRedirects(text) {

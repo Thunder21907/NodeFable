@@ -10,7 +10,7 @@ import re
 import shutil
 from typing import Dict, List, Optional
 
-from backend.schemas.project import ProjectSchema, NodeData, VariableValue
+from backend.schemas.project import ProjectSchema, NodeData, VariableValue, GroupSlugInfo
 
 app = FastAPI()
 
@@ -80,6 +80,82 @@ def _needs_migration(name: str) -> bool:
     return os.path.exists(_legacy_path(name))
 
 
+def _build_slug_info(nodes: list) -> list:
+    """Build slug_ids entries with {slug_id, connections} from a list of node dicts/models."""
+    result = []
+    for n in nodes:
+        if isinstance(n, dict):
+            sid = n.get("id", "")
+            choices = n.get("choices", [])
+        else:
+            sid = getattr(n, "id", "")
+            choices = getattr(n, "choices", [])
+        if not sid:
+            continue
+        connections = []
+        for c in choices:
+            tid = c.get("target_node_id", "") if isinstance(c, dict) else getattr(c, "target_node_id", "")
+            if tid:
+                connections.append(tid)
+        result.append({"slug_id": sid, "connections": connections})
+    return result
+
+
+def _convert_slug_ids_if_old(slug_ids: list, nodes: list = None) -> list:
+    """Convert old flat string slug_ids to new {slug_id, connections} format if needed."""
+    if not slug_ids:
+        return []
+    if isinstance(slug_ids[0], dict):
+        return slug_ids
+    if nodes is None:
+        return [{"slug_id": sid, "connections": []} for sid in slug_ids]
+    nodes_by_id = {}
+    for n in nodes:
+        sid = n.get("id", "") if isinstance(n, dict) else getattr(n, "id", "")
+        if sid:
+            nodes_by_id[sid] = n
+    result = []
+    for sid in slug_ids:
+        node = nodes_by_id.get(sid, {})
+        choices = node.get("choices", []) if isinstance(node, dict) else getattr(node, "choices", [])
+        connections = [c.get("target_node_id", "") if isinstance(c, dict) else getattr(c, "target_node_id", "") for c in choices]
+        connections = [c for c in connections if c]
+        result.append({"slug_id": sid, "connections": connections})
+    return result
+
+
+def _migrate_manifest_slug_ids(manifest: dict, name: str):
+    """Upgrade manifest slug_ids from flat strings to {slug_id, connections} objects.
+    Reads group files to compute connections. Only modifies manifest in memory."""
+    groups = manifest.get("groups", [])
+    needs_migration = False
+    for g in groups:
+        slug_ids = g.get("slug_ids", [])
+        if slug_ids and isinstance(slug_ids[0], str):
+            needs_migration = True
+            break
+    if not needs_migration:
+        return
+    for g in groups:
+        slug_ids = g.get("slug_ids", [])
+        if not slug_ids or not isinstance(slug_ids[0], str):
+            continue
+        gpath = _group_path(name, g["id"])
+        nodes = []
+        if os.path.exists(gpath):
+            with open(gpath, "r", encoding="utf-8") as gf:
+                gdata = json.load(gf)
+            nodes = gdata.get("nodes", [])
+        nodes_by_id = {n.get("id", ""): n for n in nodes if isinstance(n, dict)}
+        new_slug_ids = []
+        for sid in slug_ids:
+            node = nodes_by_id.get(sid, {})
+            choices = node.get("choices", []) if isinstance(node, dict) else []
+            connections = [c.get("target_node_id", "") for c in choices if isinstance(c, dict) and c.get("target_node_id")]
+            new_slug_ids.append({"slug_id": sid, "connections": connections})
+        g["slug_ids"] = new_slug_ids
+
+
 def _migrate_legacy_project(name: str):
     """Convert old single project.json into manifest + per-group files."""
     src = _legacy_path(name)
@@ -88,7 +164,6 @@ def _migrate_legacy_project(name: str):
 
     nodes: list = data.get("nodes", [])
     variables: dict = data.get("variables", {})
-    n2g: dict[str, str] = {}
 
     side_panel_nodes = [n for n in nodes if n.get("id") == "side_panel"]
     other_nodes = [n for n in nodes if n.get("id") != "side_panel"]
@@ -105,15 +180,14 @@ def _migrate_legacy_project(name: str):
                 "group_id": "side_panel",
                 "label": "Side Panel",
                 "node_count": len(side_panel_nodes),
-                "slug_ids": [n["id"] for n in side_panel_nodes],
+                "slug_ids": _build_slug_info(side_panel_nodes),
                 "nodes": side_panel_nodes
             }, f, indent=4)
-        n2g.update({n["id"]: "side_panel" for n in side_panel_nodes})
         groups.append({
             "id": "side_panel",
             "label": "Side Panel",
             "node_count": len(side_panel_nodes),
-            "slug_ids": [n["id"] for n in side_panel_nodes]
+            "slug_ids": _build_slug_info(side_panel_nodes)
         })
 
     if other_nodes:
@@ -126,23 +200,21 @@ def _migrate_legacy_project(name: str):
                 "group_id": "default",
                 "label": "Default",
                 "node_count": len(other_nodes),
-                "slug_ids": [n["id"] for n in other_nodes],
+                "slug_ids": _build_slug_info(other_nodes),
                 "nodes": other_nodes
             }, f, indent=4)
-        n2g.update({n["id"]: "default" for n in other_nodes})
         groups.append({
             "id": "default",
             "label": "Default",
             "node_count": len(other_nodes),
-            "slug_ids": [n["id"] for n in other_nodes]
+            "slug_ids": _build_slug_info(other_nodes)
         })
 
     manifest = {
         "name": safe_name(name),
         "version": MANIFEST_VERSION,
         "variables": variables,
-        "groups": groups,
-        "node_to_group": n2g
+        "groups": groups
     }
     with open(_manifest_path(name), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=4)
@@ -180,7 +252,10 @@ def _load_manifest(name: str) -> dict:
                 with open(gpath, "r", encoding="utf-8") as gf:
                     gdata = json.load(gf)
                 file_node_count = gdata.get("node_count", len(gdata.get("nodes", [])))
-                file_slug_ids = gdata.get("slug_ids", [n.get("id", "") for n in gdata.get("nodes", [])])
+                file_slug_ids = _convert_slug_ids_if_old(
+                    gdata.get("slug_ids", [n.get("id", "") for n in gdata.get("nodes", [])]),
+                    gdata.get("nodes", [])
+                )
                 file_label = gdata.get("label", gid.replace("_", " ").title())
 
                 if gid in existing_ids:
@@ -192,11 +267,6 @@ def _load_manifest(name: str) -> dict:
                                 g["slug_ids"] = file_slug_ids
                                 g["label"] = file_label
                             break
-                    n2g = manifest.setdefault("node_to_group", {})
-                    for n in gdata.get("nodes", []):
-                        sid = n.get("id", "") if isinstance(n, dict) else getattr(n, "id", "")
-                        if sid:
-                            n2g[sid] = gid
                 else:
                     # Orphaned group file — append to manifest
                     manifest.setdefault("groups", []).append({
@@ -205,15 +275,11 @@ def _load_manifest(name: str) -> dict:
                         "node_count": file_node_count,
                         "slug_ids": file_slug_ids
                     })
-                    n2g = manifest.setdefault("node_to_group", {})
-                    for n in gdata.get("nodes", []):
-                        sid = n.get("id", "") if isinstance(n, dict) else getattr(n, "id", "")
-                        if sid:
-                            n2g[sid] = gid
                     existing_ids.add(gid)
             except (json.JSONDecodeError, KeyError):
                 continue
 
+    _migrate_manifest_slug_ids(manifest, name)
     return manifest
 
 
@@ -257,7 +323,6 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
     _ensure_project_dirs(safe)
 
     grouped: dict[str, list] = {}
-    node_to_group: dict[str, str] = {}
 
     for n in nodes:
         gid = n.get("group", "side_panel") if isinstance(n, dict) else getattr(n, "group", "side_panel")
@@ -266,7 +331,6 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
         else:
             sid = n.id
         grouped.setdefault(gid, []).append(n)
-        node_to_group[sid] = gid
 
     # Ensure side_panel group exists
     if "side_panel" not in grouped:
@@ -290,14 +354,14 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
                 "group_id": gid,
                 "label": label,
                 "node_count": len(g_nodes),
-                "slug_ids": [n.get("id") if isinstance(n, dict) else n.id for n in g_nodes],
+                "slug_ids": _build_slug_info(g_nodes),
                 "nodes": serialized
             }, f, indent=4)
         groups_list.append({
             "id": gid,
             "label": label,
             "node_count": len(g_nodes),
-            "slug_ids": [n.get("id") if isinstance(n, dict) else n.id for n in g_nodes]
+            "slug_ids": _build_slug_info(g_nodes)
         })
 
     # Preserve groups from groups_meta that have no nodes in the payload
@@ -318,7 +382,10 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
                 with open(gpath, "r", encoding="utf-8") as ef:
                     edata = json.load(ef)
                 g_node_count = edata.get("node_count", len(edata.get("nodes", [])))
-                g_slug_ids = edata.get("slug_ids", [n.get("id", "") for n in edata.get("nodes", [])])
+                g_slug_ids = _convert_slug_ids_if_old(
+                    edata.get("slug_ids", [n.get("id", "") for n in edata.get("nodes", [])]),
+                    edata.get("nodes", [])
+                )
                 g_label = edata.get("label", "") or label
             else:
                 # New group — write an empty file once
@@ -344,9 +411,10 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
         "name": safe,
         "version": MANIFEST_VERSION,
         "variables": variables,
-        "groups": groups_list,
-        "node_to_group": node_to_group
+        "groups": groups_list
     }
+    # Drop the redundant node_to_group field if it ever lingers in memory
+    manifest.pop("node_to_group", None)
     with open(_manifest_path(safe), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=4)
 
@@ -356,7 +424,7 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
 # ---------------------------------------------------------------------------
 
 def _rewrite_asset_urls(obj: any, safe: str):
-    pattern = re.compile(r'/api/assets/' + re.escape(safe) + r'/([^)"\s]+)')
+    pattern = re.compile(r'/api/assets/' + re.escape(safe) + r'/([^)"\s,}]+)')
     def _walk(o):
         if isinstance(o, dict):
             for k, v in o.items():

@@ -45,7 +45,7 @@ Everything under `frontend/editor/` is served at `/editor/...`. The `html=True` 
 | `nodes` | `List[NodeData]` | — | `[]` | All story nodes (excluding portals) |
 | `groups` | `List[Dict]` | — | `None` | Group metadata with id, label, etc. |
 
-`VariableValue = Union[bool, int, str]` (defined in `backend/schemas/project.py:5`).
+`VariableValue = Union[bool, int, float, str, list]` (defined in `backend/schemas/project.py:5`).
 
 `NodeData` now includes a `group: str` field (default `"side_panel"`). Nodes are partitioned by group on save.
 
@@ -169,7 +169,7 @@ Sorted by modification time, newest first. Only directories containing a `projec
 GET /api/load/manifest?name=<project_name>
 ```
 
-**Purpose:** Returns only the manifest (group list, variable definitions, node-to-group mapping) without any node body data. Used by the frontend to show the group selector before loading any nodes.
+**Purpose:** Returns only the manifest (group list with `slug_ids` + connections, variable definitions) without any node body data. Used by the frontend to show the group selector before loading any nodes.
 
 **Response (200):**
 ```json
@@ -178,13 +178,9 @@ GET /api/load/manifest?name=<project_name>
   "version": 2,
   "variables": { "hp": 100 },
   "groups": [
-    { "id": "side_panel", "label": "Side Panel", "node_count": 1, "slug_ids": ["side_panel"] },
-    { "id": "chapter_1", "label": "Chapter 1", "node_count": 300, "slug_ids": ["c1_start", ...] }
-  ],
-  "node_to_group": {
-    "side_panel": "side_panel",
-    "c1_start": "chapter_1"
-  }
+    { "id": "side_panel", "label": "Side Panel", "node_count": 1, "slug_ids": [{ "slug_id": "side_panel", "connections": [] }] },
+    { "id": "chapter_1", "label": "Chapter 1", "node_count": 300, "slug_ids": [{ "slug_id": "c1_start", "connections": ["c1_forest"] }] }
+  ]
 }
 ```
 

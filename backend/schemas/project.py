@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
 
-# Supported types for game variables (bool, int, str)
-VariableValue = Union[bool, int, str]
+# Supported types for game variables (bool, int, float, str, list)
+VariableValue = Union[bool, int, float, str, list]
 
 class ChoiceLink(BaseModel):
     target_node_id: str = Field(..., description="The ID of the node this choice leads to")
@@ -36,18 +36,21 @@ class NodeData(BaseModel):
     is_start: bool = Field(False, description="If true, this node is the starting point of the game")
     group: str = Field("side_panel", description="The group this node belongs to")
 
+class GroupSlugInfo(BaseModel):
+    slug_id: str = Field(..., description="Node slug identifier")
+    connections: List[str] = Field(default_factory=list, description="List of target node slugs this node connects to")
+
 class GroupInfo(BaseModel):
     id: str = Field(..., description="Group identifier")
     label: str = Field(..., description="Human-readable group label")
     node_count: int = Field(0, description="Number of nodes in this group")
-    slug_ids: List[str] = Field(default_factory=list, description="List of node slugs in this group")
+    slug_ids: List[GroupSlugInfo] = Field(default_factory=list, description="List of node slug info with connections")
 
 class ManifestSchema(BaseModel):
     name: str = Field(..., description="Project name")
     version: int = Field(2, description="Schema version")
     variables: Dict[str, VariableValue] = Field(default_factory=dict)
     groups: List[GroupInfo] = Field(default_factory=list, description="List of groups")
-    node_to_group: Dict[str, str] = Field(default_factory=dict, description="Node slug → group ID mapping")
 
 class GroupDataSchema(BaseModel):
     group_id: str = Field(..., description="Group identifier")

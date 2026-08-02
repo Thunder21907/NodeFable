@@ -1,0 +1,537 @@
+// frontend/editor/js/node-editor.js
+// Passage editor panel, node CRUD, linking, choices/actions/on_enter editors.
+import { state, ensureNodeData, getNodeTitleBySlug, getNodeSlug, generateUniqueSlug, getNodeIdBySlug } from './state.js';
+import { snapshotState } from './history.js';
+import { escapeHtml, escapeRegex, showIdError, hideIdError } from './ui-utils.js';
+import { getEditorValue, setEditorValue } from './codemirror-setup.js';
+import { openGroupEditor, populateGroupDropdown, _setupNodeCollapseButton, removeNodeFromGroups } from './group-manager.js';
+
+export function closePassageEditor() {
+    state.selectedNodeId = null;
+    state.editingPortalNodeId = null;
+    document.getElementById('no-selection-msg').style.display = 'block';
+    document.getElementById('passage-editor').style.display = 'none';
+    document.getElementById('group-editor').style.display = 'none';
+}
+
+export function openPassageEditor(nodeId, skipDirtyCheck) {
+    if (!skipDirtyCheck && state.selectedNodeId !== null && state.selectedNodeId !== parseInt(nodeId)) {
+        const currentData = state.nodesData[state.selectedNodeId];
+        if (currentData && getEditorValue() !== currentData.text) {
+            saveCurrentContent(state.selectedNodeId);
+        }
+    }
+
+    const nid = parseInt(nodeId);
+    ensureNodeData(nid);
+    const data = state.nodesData[nid];
+    if (!data) return;
+
+    state.selectedNodeId = nid;
+    document.getElementById('no-selection-msg').style.display = 'none';
+
+    // If it's a portal node, open the group editor instead
+    if (data.isPortal) {
+        document.getElementById('passage-editor').style.display = 'none';
+        openGroupEditor(nid);
+        return;
+    }
+
+    document.getElementById('group-editor').style.display = 'none';
+    document.getElementById('passage-editor').style.display = 'block';
+
+    document.getElementById('passage-title').value = data.title || '';
+    setEditorValue(data.text || '');
+    document.getElementById('passage-id').value = data.slug || '';
+    document.getElementById('passage-id-error').style.display = 'none';
+
+    const isStartCheckbox = document.getElementById('passage-is-start');
+    if (data.slug === 'side_panel') {
+        isStartCheckbox.style.display = 'none';
+    } else {
+        isStartCheckbox.style.display = 'flex';
+        if (isStartCheckbox.checked !== !!data.is_start) {
+            isStartCheckbox.checked = !!data.is_start;
+        }
+    }
+
+    // Populate group dropdown
+    populateGroupDropdown();
+
+    renderChoices(nid);
+    renderActions(nid);
+    renderOnEnter(nid);
+    updateStartBadgeOnCanvas(nid);
+}
+
+export function saveCurrentContent(nodeId) {
+    const title = document.getElementById('passage-title').value;
+    const content = getEditorValue();
+    const nodeData = state.nodesData[nodeId];
+    if (!nodeData) return;
+    nodeData.title = title;
+    nodeData.text = content;
+    const slugInput = document.getElementById('passage-id');
+    if (slugInput) {
+        const newSlug = slugInput.value.trim();
+        if (newSlug && newSlug !== nodeData.slug) {
+            delete state.slugToNodeId[nodeData.slug];
+            state.slugToNodeId[newSlug] = nodeId;
+            nodeData.slug = newSlug;
+        }
+    }
+}
+
+export function updateCurrentNode() {
+    if (!state.selectedNodeId) return;
+    snapshotState();
+
+    const title = document.getElementById('passage-title').value;
+    const content = getEditorValue();
+    const newSlug = document.getElementById('passage-id').value.trim();
+
+    ensureNodeData(state.selectedNodeId);
+    const nodeData = state.nodesData[state.selectedNodeId];
+
+    if (!newSlug) {
+        showIdError('Node ID cannot be empty');
+        return;
+    }
+    if (newSlug !== nodeData.slug && state.slugToNodeId[newSlug] !== undefined) {
+        showIdError('Node ID "' + newSlug + '" is already in use');
+        return;
+    }
+
+    hideIdError();
+
+    if (newSlug !== nodeData.slug) {
+        const oldSlug = nodeData.slug;
+
+        delete state.slugToNodeId[oldSlug];
+        state.slugToNodeId[newSlug] = state.selectedNodeId;
+
+        for (const [nid, ndata] of Object.entries(state.nodesData)) {
+            if (ndata.choices) {
+                ndata.choices.forEach(choice => {
+                    if (choice.targetSlug === oldSlug) {
+                        choice.targetSlug = newSlug;
+                    }
+                });
+            }
+        }
+
+        for (const [nid, ndata] of Object.entries(state.nodesData)) {
+            if (ndata.on_enter && ndata.on_enter.target_node_id === oldSlug) {
+                ndata.on_enter.target_node_id = newSlug;
+            }
+        }
+
+        nodeData.slug = newSlug;
+    }
+
+    nodeData.title = title;
+    nodeData.text = content;
+
+    nodeData.is_start = document.getElementById('passage-is-start').checked;
+    if (nodeData.is_start) {
+        for (const [nid, nd] of Object.entries(state.nodesData)) {
+            if (parseInt(nid) !== state.selectedNodeId && nd.is_start) {
+                nd.is_start = false;
+                updateStartBadgeOnCanvas(parseInt(nid));
+            }
+        }
+    }
+    updateStartBadgeOnCanvas(state.selectedNodeId);
+
+    // Sync group from dropdown
+    const groupSelect = document.getElementById('passage-group');
+    if (groupSelect) {
+        nodeData.group = groupSelect.value || '';
+    }
+
+    const linkRegex = /\[([^\]]*)\]\(node:([^)]+)\)/g;
+    const linksInContent = {};
+    let match;
+    while ((match = linkRegex.exec(content)) !== null) {
+        linksInContent[match[2]] = match[1];
+    }
+
+    const choiceCards = document.querySelectorAll('#choices-list .choice-card');
+    choiceCards.forEach((card, index) => {
+        const prereqInput = document.getElementById('choice-prereq-' + index);
+        const mutationInput = document.getElementById('choice-mutation-' + index);
+        if (nodeData.choices[index]) {
+            const choice = nodeData.choices[index];
+            choice.text = linksInContent[choice.targetSlug] || '';
+            choice.prerequisite = prereqInput ? prereqInput.value : '';
+            choice.mutation = mutationInput ? mutationInput.value : '';
+        }
+    });
+
+    const actionCards = document.querySelectorAll('#actions-list .choice-card');
+    actionCards.forEach((card, aIndex) => {
+        if (!nodeData.actions[aIndex]) return;
+        const action = nodeData.actions[aIndex];
+        action.text = card.querySelector('.action-text-input').value || '';
+
+        const pairEls = card.querySelectorAll('.pair-card');
+        const newPairs = [];
+        pairEls.forEach(el => {
+            const condition = el.querySelector('.pair-condition').value.trim();
+            const mutation = el.querySelector('.pair-mutation').value.trim();
+            if (mutation) {
+                newPairs.push(condition ? { condition, mutation } : { mutation });
+            }
+        });
+        action.pairs = newPairs.length > 0 ? newPairs : [{ mutation: '' }];
+    });
+
+    const nodeEl = document.getElementById('node-' + state.selectedNodeId);
+    if (nodeEl) {
+        const contentEl = nodeEl.querySelector('.drawflow_content_node');
+        if (contentEl) contentEl.innerHTML = title;
+    }
+
+    renderChoices(state.selectedNodeId);
+    renderOnEnter(state.selectedNodeId);
+}
+
+export function addNode() {
+    snapshotState();
+    try {
+        const posX = Math.floor(Math.random() * 400) + 50;
+        const posY = Math.floor(Math.random() * 300) + 50;
+        const nodeId = state.editor.addNode(
+            'story_node',
+            1,
+            1,
+            posX,
+            posY,
+            'story_node',
+            {},
+            'New Node'
+        );
+        const slug = generateUniqueSlug('new_node');
+        state.nodesData[nodeId] = { title: 'New Node', text: '', choices: [], slug: slug, is_start: false, group: '' };
+        state.slugToNodeId[slug] = nodeId;
+        _setupNodeCollapseButton(nodeId);
+        console.log("Created new node:", nodeId, "slug:", slug);
+        openPassageEditor(nodeId);
+    } catch (err) {
+        console.error("Failed to create node:", err);
+    }
+}
+
+export function deleteCurrentNode() {
+    if (!state.selectedNodeId) return;
+    if (confirm("Are you sure you want to delete this node?")) {
+        snapshotState();
+        const slug = getNodeSlug(state.selectedNodeId);
+        const group = state.nodesData[state.selectedNodeId] ? state.nodesData[state.selectedNodeId].group || '' : '';
+        state.editor.removeNodeId("node-" + state.selectedNodeId);
+        delete state.nodesData[state.selectedNodeId];
+        if (slug) delete state.slugToNodeId[slug];
+        removeNodeFromGroups(slug, group);
+        closePassageEditor();
+    }
+}
+
+export function deleteNodeOverlay(nodeId) {
+    if (confirm("Are you sure you want to delete this node?")) {
+        snapshotState();
+        const slug = getNodeSlug(nodeId);
+        const group = state.nodesData[nodeId] ? state.nodesData[nodeId].group || '' : '';
+        state.editor.removeNodeId("node-" + nodeId);
+        delete state.nodesData[nodeId];
+        if (slug) delete state.slugToNodeId[slug];
+        removeNodeFromGroups(slug, group);
+        closePassageEditor();
+    }
+}
+
+export function editNode(nodeId) {
+    openPassageEditor(parseInt(nodeId));
+}
+
+export function startLinking(nodeId) {
+    state.linkingFromId = parseInt(nodeId);
+    document.body.classList.add('is-linking');
+    console.log(`Entering linking mode from node: ${state.linkingFromId}`);
+}
+
+export function cancelLinking() {
+    state.linkingFromId = null;
+    document.body.classList.remove('is-linking');
+    console.log("Linking mode cancelled.");
+}
+
+export function handleLinkTargetClick(targetId, inputName) {
+    if (state.linkingFromId === targetId) {
+        cancelLinking();
+        return;
+    }
+    const targetData = state.nodesData[targetId];
+    if (targetData && targetData.isPortal) {
+        if (inputName && inputName.startsWith('input_')) {
+            // Allow connection to portal input — handled in connectionCreated
+            snapshotState();
+            state.editor.addConnection(state.linkingFromId, targetId, 'output_1', inputName);
+            cancelLinking();
+            return;
+        }
+        alert('Cannot link to a portal group. Load the group first, then create connections to individual nodes.');
+        cancelLinking();
+        return;
+    }
+    snapshotState();
+    state.editor.addConnection(state.linkingFromId, targetId, 'output_1', inputName || 'input_1');
+    console.log(`Linked Node ${state.linkingFromId} -> Node ${targetId}`);
+    cancelLinking();
+}
+
+export function toggleStartNode(checked) {
+    if (!state.selectedNodeId) return;
+    const nodeData = state.nodesData[state.selectedNodeId];
+    if (!nodeData) return;
+    nodeData.is_start = checked;
+    if (checked) {
+        for (const [nid, nd] of Object.entries(state.nodesData)) {
+            if (parseInt(nid) !== state.selectedNodeId && nd.is_start) {
+                nd.is_start = false;
+                updateStartBadgeOnCanvas(parseInt(nid));
+            }
+        }
+    }
+    updateStartBadgeOnCanvas(state.selectedNodeId);
+}
+
+export function updateStartBadgeOnCanvas(nodeId) {
+    const nodeEl = document.getElementById('node-' + nodeId);
+    if (!nodeEl) return;
+    nodeEl.classList.toggle('node-start', !!(state.nodesData[nodeId] && state.nodesData[nodeId].is_start));
+}
+
+export function renderChoices(nodeId) {
+    const container = document.getElementById('choices-list');
+    const data = state.nodesData[nodeId];
+    if (!data || !data.choices || data.choices.length === 0) {
+        container.innerHTML = '<p id="no-choices-msg" class="text-muted-sm">Use the Link button [Link] on a node to connect passages.</p>';
+        return;
+    }
+
+    let html = '';
+    data.choices.forEach((choice, index) => {
+        const targetTitle = getNodeTitleBySlug(choice.targetSlug);
+        const linkText = getLinkTextFromContent(data.text || '', choice.targetSlug);
+        html += `
+            <div class="choice-card" data-node-id="${nodeId}" data-choice-index="${index}">
+                <div class="choice-header">
+                    <span class="choice-target">→ ${targetTitle}</span>
+                    <button data-action="remove-choice" data-target-slug="${escapeHtml(choice.targetSlug)}" class="danger" title="Remove connection">Remove</button>
+                </div>
+                <div class="choice-link-text">Link text: <em>${escapeHtml(linkText || '(edit in passage content)')}</em></div>
+
+                <label for="choice-prereq-${index}">Prerequisite (JS expression)</label>
+                <input type="text" id="choice-prereq-${index}" value="${escapeHtml(choice.prerequisite || '')}" placeholder="e.g. state.has_key == true">
+
+                <label for="choice-mutation-${index}">Mutation (JS statement)</label>
+                <input type="text" id="choice-mutation-${index}" value="${escapeHtml(choice.mutation || '')}" placeholder="e.g. state.health -= 10">
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+export function removeChoiceLink(sourceId, targetSlug) {
+    const targetId = getNodeIdBySlug(targetSlug);
+    if (targetId === null) return;
+    state.editor.removeSingleConnection(sourceId, targetId, 'output_1', 'input_1');
+}
+
+export function renderActions(nodeId) {
+    const container = document.getElementById('actions-list');
+    const data = state.nodesData[nodeId];
+    if (!data || !data.actions || data.actions.length === 0) {
+        container.innerHTML = '<p class="text-muted-sm">No actions defined.</p>';
+        return;
+    }
+    let html = '';
+    data.actions.forEach((action, aIndex) => {
+        const syntax = '[' + (action.text || 'action-text') + '](' + (action.id ? 'action:' + action.id : 'action:id') + ')';
+
+        const pairsHtml = (action.pairs || []).map((pair, pIndex) => `
+            <div class="pair-card" data-pair-index="${pIndex}">
+                <div class="pair-header">
+                    <label>Condition (optional)</label>
+                    <button data-action="remove-pair" class="danger" style="padding:2px 8px;font-size:0.75rem;">X</button>
+                </div>
+                <input type="text" class="pair-condition" value="${escapeHtml(pair.condition || '')}" placeholder="e.g. state.has_key == false">
+                <label>Mutation</label>
+                <input type="text" class="pair-mutation" value="${escapeHtml(pair.mutation)}" placeholder="e.g. state.has_key = true">
+            </div>
+        `).join('');
+
+        html += `
+            <div class="choice-card" data-node-id="${nodeId}" data-action-index="${aIndex}">
+                <div class="action-link-text">${escapeHtml(syntax)}</div>
+                <div class="choice-header">
+                    <input type="text" class="action-text-input" value="${escapeHtml(action.text)}" placeholder="Action link text...">
+                    <button data-action="update-action" class="success" style="font-size:0.8rem;padding:4px 10px;">Update</button>
+                    <button data-action="delete-action" class="danger" style="font-size:0.8rem;padding:4px 10px;" title="Remove action">Remove</button>
+                </div>
+                <div class="action-pairs" style="margin-top:6px;">
+                    ${pairsHtml}
+                </div>
+                <button data-action="add-pair" style="font-size:0.85rem;margin-top:4px;">+ Add pair</button>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+export function deleteAction(nodeId, index) {
+    if (!state.nodesData[nodeId] || !state.nodesData[nodeId].actions) return;
+    state.nodesData[nodeId].actions.splice(index, 1);
+    renderActions(nodeId);
+}
+
+export function addPair(nodeId, aIndex) {
+    const action = state.nodesData[nodeId]?.actions?.[aIndex];
+    if (!action) return;
+    if (!action.pairs) action.pairs = [];
+    action.pairs.push({ condition: '', mutation: '' });
+    renderActions(nodeId);
+}
+
+export function removePair(nodeId, aIndex, pIndex) {
+    const action = state.nodesData[nodeId]?.actions?.[aIndex];
+    if (!action || !action.pairs) return;
+    action.pairs.splice(pIndex, 1);
+    renderActions(nodeId);
+}
+
+export function updateAction(nodeId, aIndex) {
+    const action = state.nodesData[nodeId]?.actions?.[aIndex];
+    if (!action) return;
+
+    const card = document.querySelector('#actions-list .choice-card[data-action-index="' + aIndex + '"]');
+    if (!card) return;
+
+    action.text = card.querySelector('.action-text-input').value || '';
+
+    const pairEls = card.querySelectorAll('.pair-card');
+    const newPairs = [];
+    pairEls.forEach(el => {
+        const condition = el.querySelector('.pair-condition').value.trim();
+        const mutation = el.querySelector('.pair-mutation').value.trim();
+        if (mutation) {
+            newPairs.push(condition ? { condition, mutation } : { mutation });
+        }
+    });
+    action.pairs = newPairs.length > 0 ? newPairs : [{ mutation: '' }];
+
+    renderActions(nodeId);
+}
+
+export function insertAction() {
+    if (!state.selectedNodeId) { alert('Open a passage first.'); return; }
+    ensureNodeData(state.selectedNodeId);
+    if (!state.nodesData[state.selectedNodeId].actions) state.nodesData[state.selectedNodeId].actions = [];
+
+    const actions = state.nodesData[state.selectedNodeId].actions;
+    const allIds = new Set();
+    for (const nodeId in state.nodesData) {
+        for (const a of (state.nodesData[nodeId].actions || [])) {
+            if (a.id) allIds.add(a.id);
+        }
+    }
+    let idCounter = 0;
+    while (allIds.has('a' + idCounter)) idCounter++;
+    const id = 'a' + idCounter;
+    actions.push({ id, text: '', pairs: [{ condition: '', mutation: '' }] });
+
+    renderActions(state.selectedNodeId);
+}
+
+export function deduplicateActionIds() {
+    const seen = {};
+    for (const nodeId in state.nodesData) {
+        for (const action of (state.nodesData[nodeId].actions || [])) {
+            if (!action.id) {
+                action.id = 'a' + Object.keys(seen).length;
+            }
+            if (seen[action.id] !== undefined) {
+                const oldId = action.id;
+                let counter = 0;
+                while (seen['a' + counter] !== undefined) counter++;
+                action.id = 'a' + counter;
+                console.log('Renamed duplicate action "' + oldId + '" in node ' + nodeId + ' to "' + action.id + '"');
+            }
+            seen[action.id] = true;
+        }
+    }
+}
+
+export function renderOnEnter(nodeId) {
+    const container = document.getElementById('onenter-section');
+    const data = state.nodesData[nodeId];
+    if (!data) return;
+
+    const onEnter = data.on_enter;
+    const isEnabled = !!onEnter;
+    const hasTarget = isEnabled && !!onEnter.target_node_id;
+
+    const allSlugs = Object.values(state.slugToNodeId).map(id => state.nodesData[id]?.slug).filter(Boolean);
+
+    container.innerHTML = `
+        <label class="label-checkbox">
+            <input type="checkbox" id="onenter-enabled" ${isEnabled ? 'checked' : ''} onchange="toggleOnEnter(${nodeId}, this.checked)">
+            Enable auto-redirect when entering this node
+        </label>
+        <div id="onenter-fields" class="${isEnabled ? '' : 'is-hidden'}">
+            <label for="onenter-target">Redirect to Node</label>
+            <select id="onenter-target" onchange="updateOnEnterField(${nodeId})">
+                <option value="">— Select node —</option>
+                ${allSlugs.map(slug => {
+                    const title = getNodeTitleBySlug(slug);
+                    return '<option value="' + slug + '" ' + (hasTarget && onEnter.target_node_id === slug ? 'selected' : '') + '>' + title + ' (' + slug + ')</option>';
+                }).join('')}
+            </select>
+            <label for="onenter-condition">Condition (optional JS expression)</label>
+            <input type="text" id="onenter-condition" value="${escapeHtml(isEnabled && onEnter.condition ? onEnter.condition : '')}" placeholder="e.g. state.rent_overdue == true" onchange="updateOnEnterField(${nodeId})">
+            <label for="onenter-mutation">Mutation (optional JS statement)</label>
+            <input type="text" id="onenter-mutation" value="${escapeHtml(isEnabled && onEnter.mutation ? onEnter.mutation : '')}" placeholder="e.g. state.triggered = true" onchange="updateOnEnterField(${nodeId})">
+        </div>
+    `;
+}
+
+export function toggleOnEnter(nodeId, enabled) {
+    if (!state.nodesData[nodeId]) return;
+    if (enabled) {
+        state.nodesData[nodeId].on_enter = { target_node_id: '', condition: '', mutation: '' };
+    } else {
+        state.nodesData[nodeId].on_enter = null;
+    }
+    renderOnEnter(nodeId);
+}
+
+export function updateOnEnterField(nodeId) {
+    if (!state.nodesData[nodeId] || !state.nodesData[nodeId].on_enter) return;
+    const container = document.getElementById('onenter-section');
+    state.nodesData[nodeId].on_enter.target_node_id = container.querySelector('#onenter-target').value;
+    state.nodesData[nodeId].on_enter.condition = container.querySelector('#onenter-condition').value || null;
+    state.nodesData[nodeId].on_enter.mutation = container.querySelector('#onenter-mutation').value || null;
+}
+
+export function getNodeTitle(nodeId) {
+    if (state.nodesData[nodeId] && state.nodesData[nodeId].title) {
+        return state.nodesData[nodeId].title;
+    }
+    return 'Node ' + nodeId;
+}
+
+export function getLinkTextFromContent(content, targetSlug) {
+    const regex = new RegExp('\\[([^\\]]*)\\]\\(node:' + escapeRegex(targetSlug) + '\\)');
+    const match = content.match(regex);
+    return match ? match[1] : '';
+}

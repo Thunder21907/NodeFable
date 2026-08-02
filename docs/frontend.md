@@ -108,8 +108,8 @@
 **`#tab-markdown`** (lines 126–135):
 - Contains `<div id="passage-content-editor">` — hosts the CodeMirror 5 instance
 - CodeMirror initialized with custom `nodefable` mode (markdown + NodeFable syntax overlay), `material-darker` theme, line numbers, line wrapping, and matchbrackets
-- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{checkbox:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `state.varname`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` and `[text](action:id)` links
-- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` context), action IDs (in `action:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, etc.)
+- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{include:}`, `state.varname`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` and `[text](action:id)` links
+- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` or `{include:` context), action IDs (in `action:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, etc.)
 - Below: `.helper-text` with link to Tutorial page
 
 ---
@@ -177,7 +177,7 @@ Class `.md-toolbar`, 8 buttons:
 - `#var-form` — `.var-form` class, hidden by default (`display:none`)
 - Fields:
   - `#var-name` — text input (placeholder: "Variable name (e.g. player_health)")
-  - `#var-type` — select with options: int, float, String, bool
+  - `#var-type` — select with options: int, float, String, bool, array
   - `#var-value` — text input (placeholder: "Initial value")
 - Buttons:
   - "Add" / "Save Changes" → `addVariable()` (label changes when editing)
@@ -200,7 +200,7 @@ Class `.md-toolbar`, 8 buttons:
 - `#asset-list` — populated with `.asset-item` elements
 - Each `.asset-item` contains:
   - `.asset-preview` — 28×28 image thumbnail (`object-fit: cover`)
-  - `.asset-syntax` — monospace syntax text for copying
+  - `.asset-syntax` — monospace syntax text for copying (a `{img: url, alt=…}` directive for images, `{video: url}` for `mp4`/`webm`/`ogg`/`mov` files)
 
 ---
 

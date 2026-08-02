@@ -75,7 +75,7 @@ If a slug already exists, the editor appends a numeric suffix (`room_2`, `room_3
 
 ## 2. Text Markup Reference
 
-Processed in the runtime engine: conditional resolution (`processConditionals`), mutations (`{set:}`), and redirect stripping are handled in `render()` and `_preprocessText()`. HTML rendering (images, links, waits, bold/italic, variable interpolation `{var:}`) is in `renderContent()`.
+Processed in the runtime engine: directive resolution (`processDirectives` — conditionals `{if:}`, mutations `{set:}`, loops `{while:}`/`{do}`, interpolation `{var:}`), and redirect stripping are handled in `render()` and `_preprocessText()`. HTML rendering (images, links, waits, bold/italic, `{random:}`) is in `renderContent()`.
 
 | Syntax | Output | Example |
 |---|---|---|---|---|
@@ -86,6 +86,14 @@ Processed in the runtime engine: conditional resolution (`processConditionals`),
 | `{set: expr}` | Inline mutation — executes JS expression at render time | `{set: state.time_text = "Morning"}` |
 | `{var:state.name}` | Replaced with the current value of `state.name` | `HP: {var:state.hp}` |
 | `{if: condition}yes{else}no{endif}` | Conditionally rendered block (evaluated against `state`) | `{if: state.has_key}Door unlocked!{endif}` |
+| `{while: condition}...{endwhile}` | Repeat body while condition is true (0+ times) | `{while: state.i < 3}{var: state.i}{endwhile}` |
+| `{do}...{while: condition}` | Repeat body until condition false (1+ times) | `{do}Roll{set: state.n += 1}{while: state.n < 3}` |
+| `{for: init; cond; update}...{endfor}` | C-style loop: init once, repeat body while cond, run update each pass | `{for: state.i = 0; state.i < 3; state.i += 1}{var: state.i}{endfor}` |
+| `{break}` | Exit the innermost loop immediately | `{if: state.hp <= 0}{break}{endif}` |
+| `{continue}` | Skip to the next iteration's condition check | `{if: state.skip}{continue}{endif}` |
+| `{unset: state.name}` | Delete a variable from `state` or `temp`; `{unset: temp}` clears all scratch | `{unset: state.hp}` |
+| `{init}...{endinit}` | Setup block — mutations run once per fresh entry; body produces no output | `{init}{set: state.items = [1,2,3]}{endinit}` |
+| `{include: slug}` | Splice another passage's text into this one (choices/actions merge) | `{include: prologue}` |
 | `{wait:N}...{endwait}` | Timed sequence — content fades in N ms, then fades out (500ms fade default) | `{wait:2000}...{endwait}` |
 | `{wait:N,fade:M}...{endwait}` | Wait sequence with custom fade duration M (ms) | `{wait:2000,fade:800}text{endwait}` |
 | `{dialogue:...}...{enddialogue}` | Styled dialogue block with optional image and speaker | `{dialogue: Bob}Hello!{enddialogue}` |
@@ -94,7 +102,8 @@ Processed in the runtime engine: conditional resolution (`processConditionals`),
 | `# Heading` | `<h1>` | `# The Dark Forest` |
 | `## Heading` | `<h2>` | `## A Clearing` |
 | `### Heading` | `<h3>` | `### A Sign` |
-| `![alt](url)` | Image | `![map](assets/map.png)` |
+| `{img: url, w=.., h=.., alt=..}` | Image with optional width/height/alt | `{img: assets/map.png, w=400}` |
+| `{video: url, autoplay, repeat, mute, w=.., h=..}` | Video player (controls always on) | `{video: assets/rain.mp4, w=480}` |
 | Blank line | New paragraph | |
 | Unmatched `[...](...)` | Plain text (fallback) | |
 
@@ -106,7 +115,7 @@ Use `{wait:N,fade:M}...{endwait}` to create timed fade-in/fade-out sequences. Ea
 - `M` = fade-in/out duration in ms (optional, default 500)
 
 ```json
-"text": "I drift off...\n\n{wait:1500,fade:600}\n![dream_scene](assets/dream.jpeg)\n\nA surreal moment...\n{endwait}\n\nI wake with a start."
+"text": "I drift off...\n\n{wait:1500,fade:600}\n{img: assets/dream.jpeg}\n\nA surreal moment...\n{endwait}\n\nI wake with a start."
 ```
 
 Content after the final `{endwait}` remains hidden until all sequences finish, then fades in smoothly. Content before the first `{wait:N}` renders immediately. Multiple wait blocks run sequentially. Variable interpolation and markdown work inside wait items.
@@ -136,19 +145,119 @@ The expression can be any valid JS statement:
 
 **Important:** Unlike choice/action mutations, `{set:}` runs every time the passage renders, including during side panel refresh. Avoid side effects that should only fire once unless guarded by a condition.
 
-### Images
-Use `![alt](url)` where `url` can be:
+### Loops
+
+Two loop forms are available in passage text (main passage and side panel):
+
+- `{while: condition}...{endwhile}` — body runs **0 or more** times, while `condition` is true.
+- `{do}...{while: condition}` — body runs **1 or more** times; the `{while: condition}` tag closes the block and is checked after each run.
+- `{for: init; cond; update}...{endfor}` — C-style loop: the `init` clause runs once, then the body repeats while `cond` is true, and the `update` clause runs after each pass.
+
+The condition is a JS expression evaluated against `state` (and `temp`). Everything inside the body is re-evaluated each iteration, so `{var:}`, `{set:}`, `{if:}`, and nested loops all see the current state:
+
+```json
+"text": "{set: state.i = 0}{while: state.i < 3}{var: state.i}{set: state.i = state.i + 1}{endwhile}"
+```
+
+Renders as `012`. Iterating an array:
+
+```json
+"text": "{set: state.i = 0}{while: state.i < state.items.size}Item {var: state.i}: {var: state.items[state.i]}\n{set: state.i = state.i + 1}{endwhile}"
+```
+
+**`{for:}` form.** The three clauses are raw JS separated by semicolons, just like a C/JS `for` loop:
+
+```json
+"text": "{for: state.i = 0; state.i < 3; state.i += 1}{var: state.i}{endfor}"
+```
+
+Renders as `012`. The `init` clause is executed via the mutation pipeline, so it **creates the variable** if it isn't declared yet — no prior `{set:}` needed. The `update` clause also runs on every pass including the one taken by `{continue}`; `{break}` exits before the update runs. The loop variable keeps its final value in `state` after the loop ends. If the header has fewer than three clauses, the tag renders literally. A zero-iteration loop still runs `init` (creating the variable), and an uninitialized variable in `cond`/`update` is `undefined`.
+
+Nested loops mix freely — `{for:}` inside `{while:}`/`{do}`, and vice versa. The one rule from `{while:}` applies: a nested `{while:}` cannot be the first directive inside a `{do}` body.
+
+- `{break}` exits the innermost loop immediately; text before it in the body is kept, text after it in that iteration is dropped.
+- `{continue}` skips the rest of the current iteration and jumps to the loop's update clause (`{for:}`) or condition check (`{while:}`/`{do}`).
+- Outside any loop, `{break}` / `{continue}` render as literal text.
+
+```json
+"text": "{set: state.i = 0}{while: state.i < 9}{var: state.i}{if: state.i == 2}{break}{endif}{set: state.i = state.i + 1}{endwhile}"
+```
+Renders as `012`.
+
+**Safety:** each loop stops after 1000 iterations and shows a "Loop limit exceeded" toast, so an infinite loop (e.g. a condition that never becomes false) can't freeze the tab.
+
+**Snapshots:** `{var:}` captures a value at the moment it is read, so a whole-array `{var:}` before a loop shows the original contents even if the loop mutates that array later in the same render pass.
+
+**Limitations:** a nested `{while:}` cannot appear as the first directive inside a `{do}` body (the first `{while:}` there always closes the do-block). Form elements inside loop bodies resolve against the final state, not per-iteration values.
+
+### Initialization (One-Time Setup)
+
+`{init}...{endinit}` separates one-time setup from display. Its body runs its `{set:}` mutations **once per fresh entry** and produces **no output** — useful for preparing arrays or counters that the rest of the passage reads while re-rendering:
+
+```json
+"text": "{init}{set: state.items = [1,2,3]}{set: state.i = 0}{endinit}{while: state.i < state.items.size}{var: state.items[state.i]}{set: state.i = state.i + 1}{endwhile}"
+```
+
+- **Fresh entry** = arriving at a passage (from a link, redirect, or new game) *or* when the side panel appears on a newly-entered main passage. Re-renders of the same passage (after a mutation, without leaving it) do **not** re-run `{init}` — the flag-guard pattern `{if: state.is_init}...{endif}` cannot express "mutate once but keep displaying", but init can.
+- **Output suppressed:** anything inside the block other than `{set:}` mutations (e.g. `{var:}`, `{if:}`, `{while:}`) still executes but contributes nothing to the displayed text.
+- **Once-only guarantee:** the body runs at most once per entry. If the block's `{endinit}` never appears, the literal text `{init}` is shown.
+- **Rules:** `{init}` is only honored at the top level of a passage (not inside a loop or another `{init}`); nested or loop-inside init blocks are consumed and ignored. An `{init}` inside a `{if:}` branch is legal and runs only if that branch is taken on a fresh entry.
+- **Scratch iterators:** use `temp` (see *Scratch Variables* below) for loop counters so setup never clobbers a story variable. No declaration is needed — `{set: temp.i = 0}` creates the property.
+- The side panel's `{init}` runs each time a new main passage is entered (entering a passage counts as fresh for the side panel too).
+
+### Scratch Variables (`temp`)
+
+`temp` is a second namespace next to `state` for **throwaway values** — loop counters, temporary flags, intermediate results. It works in every expression context `state` does (`{set:}`, `{var:}`, `{if:}`, `{while:}`, `{for:}`, action mutations, choice prerequisites, on-enter conditions, the side panel):
+
+```json
+"text": "{for: temp.i = 0; temp.i < 3; temp.i += 1}{var: temp.i}{endfor}"
+```
+
+- **Never saved:** `temp` lives on the runtime object, not in `state`, so it is never serialized into a save. Reloading a save starts with a clean `temp`.
+- **Lifecycle:** `temp` is discarded every time you enter a new passage (a fresh render). Re-renders of the **same** passage (an action click, a form event) keep `temp`, so an `{init}` setup that builds a `temp.items` array stays available to the display code until you leave the passage.
+- **`{unset:}`** can delete from either namespace: `{unset: state.name}` deletes the key from `state`, `{unset: temp.name}` from `temp`, and `{unset: temp}` clears all scratch values at once. A malformed form renders literally.
+
+### Including other passages
+
+Use `{include: slug}` to splice another passage's text into the current passage at render time. The tag is matched case-insensitively (write it lowercase): `{include: prologue}`.
+
+- **Text is concatenated in place** — included text is processed like any other markup, so `{var:}`, `{if:}`, loops, images, and nested `{include:}` all work inside it. A `{redirect:}` in the included text redirects the player, but only if the include is actually reached.
+- **Choices and actions merge.** Links in the included passage become real, clickable choices/actions in the host passage — mutations, prerequisites, and on-enter hooks all work. The host's own choices/actions come first, then included ones in textual order (innermost includes first).
+- **`{on_enter}` is not inherited** — the included passage's on-enter hook does not run.
+- **Unknown slug:** if no passage matches, `{include: missing}` renders literally so the author notices.
+- **Circular includes** are the author's responsibility. A safety counter stops expansion after 100 splices per render pass and shows a one-time toast (`Include limit exceeded.`).
+- **Inside `{init}`:** text mutations apply but the merged choices/actions are dropped (init output is suppressed anyway).
+- **Reusable:** the same passage can be included in many places; each splice is independent. The classic use is a shared footer or a "welcome" preamble referenced by several passages.
+
+```json
+"text": "The inn is quiet tonight.\n\n{include: inn_description}\n\n{include: tavern_menu}"
+```
+
+### Images & Video
+
+Use `{img: url, options}` for images and `{video: url, options}` for video. `url` can be:
 - An uploaded asset URL: `/api/assets/GameName/filename.png`
 - During export, asset URLs are rewritten to `assets/filename.png`
 - External web URLs also work
 
-Custom dimensions: append `{img:w=200,h=300}` right after the closing `)` to set width and/or height. Use `w=` for width, `h=` for height, comma-separated. Omit either for auto scaling based on aspect ratio.
+Options are comma-separated `key=value` pairs (spaces around `=` are fine — `w = 128` works). A key with no `=` is a `true` flag. Unknown keys are ignored. The target is everything before the first comma, so **spaces in filenames are preserved** (`{img: /api/assets/G/A forest.png}` works). The target and `alt` value cannot contain `,`, `}`, or `"`.
+
+| Directive | Options | Defaults |
+|---|---|---|
+| `{img: url, w=200, h=300, alt=The map}` | `w`, `h` (px), `alt` (accessibility text) | none — natural size, `max-width:100%` |
+| `{video: url, autoplay, repeat, mute, w=480, h=270}` | `autoplay`, `repeat` (loop), `mute` (booleans); `w`, `h` | autoplay `true`, repeat `true`, mute `false` |
 
 ```
-![Alex](assets/alex.jpeg){img:w=200}
-![Banner](assets/banner.png){img:w=800,h=200}
-![Divider](assets/divider.png){img:h=50}
+{img: assets/alex.jpeg, w=200}
+{img: assets/banner.png, w=800, h=200}
+{img: assets/divider.png, h=50, alt=Section divider}
+{video: assets/rain.mp4, w=480, h=270}
+{video: assets/intro.webm, autoplay=false, mute}
 ```
+
+**Video notes.** The player always shows controls and uses `preload="metadata"`. Browsers block *audible* autoplay, so with the defaults (autoplay on, unmuted) the video may wait for a click — pass `mute` for reliable ambient autoplay, or `autoplay=false` for click-to-play. Recommended formats: `video/mp4` (H.264/AAC) and `video/webm` (VP9/Opus); the browser plays the first supported one. A missing file shows an empty player.
+
+> **Removed:** the old markdown form `![alt](url)` (and `![alt](url){img:w=..}`) is no longer recognized — it renders literally. Existing passages using it must be converted to `{img: url, ...}`.
 
 ### Dialogue Blocks
 
@@ -158,13 +267,13 @@ Use `{dialogue:...}...{enddialogue}` to render styled dialogue boxes. The option
 |---|---|
 | `{dialogue:}text{enddialogue}` | Dialogue text only, no avatar or name |
 | `{dialogue: Name}text{enddialogue}` | Name displayed on the left |
-| `{dialogue: ![img](url)}text{enddialogue}` | Image avatar (56×56 circle) on the left |
-| `{dialogue: ![img](url), Name}text{enddialogue}` | Image avatar with name below it |
+| `{dialogue: {img: url}}text{enddialogue}` | Image avatar (56×56 circle) on the left |
+| `{dialogue: {img: url}, Name}text{enddialogue}` | Image avatar with name below it |
 
-The body supports all inline markdown: bold, italic, images, links, and `{var:state.x}` interpolation.
+The body supports all inline markup: bold, italic, images (`{img:}`), video, links, and `{var:state.x}` interpolation.
 
 ```json
-"text": "{dialogue: ![portrait](assets/alex.jpeg), Alex}I've got {var:state.gold} gold. Want to trade?{enddialogue}"
+"text": "{dialogue: {img: assets/alex.jpeg}, Alex}I've got {var:state.gold} gold. Want to trade?{enddialogue}"
 ```
 
 Image paths follow the same rules as regular passage images — asset URLs are rewritten to `assets/` during export.
@@ -254,6 +363,58 @@ Choose your class:
 
 Text after each `{radiobutton:...}` tag is rendered as regular content (can include bold, links, etc.). The radio group is displayed as a bordered container with stacked options.
 
+### TextArea
+
+**Syntax:** `{textarea: state.var, hint, commit_mode, rows}`
+
+Renders a multi-line text input. Multi-line content can't commit on Enter (Enter inserts a newline), so the default `commit_mode` is `blur`.
+
+| Part | Required | Description |
+|------|----------|-------------|
+| `state.var` | Yes | The story variable to bind to |
+| `hint` | No | Placeholder text (grayed out when empty) |
+| `commit_mode` | No | `live` (every keystroke) or `blur` (on blur); default `blur` |
+| `rows` | No | Visible height in lines; default `3` |
+
+**Examples:**
+```
+Tell your story: {textarea: state.bio, What happened?, blur}
+
+Live draft: {textarea: state.draft, , live, 5}
+```
+
+### Number
+
+**Syntax:** `{number: state.var, min, max, step}`
+
+Renders a numeric stepper. The value updates live as the player types or uses the spinner arrows, stored as a JS `Number`. **Clearing the field does not overwrite the variable** — the previous value is kept (avoids `number → ""` type flips).
+
+| Part | Required | Description |
+|------|----------|-------------|
+| `state.var` | Yes | The story variable to bind to |
+| `min` | No | Minimum allowed value |
+| `max` | No | Maximum allowed value |
+| `step` | No | Increment amount (e.g. `0.5`); default browser stepping |
+
+**Examples:**
+```
+Enter your age: {number: state.age, 1, 150}
+Score: {number: state.score, 0, 100, 5}
+```
+
+### Dropdown
+
+**Syntax:** `{dropdown: state.var, opt1, opt2, ...}`
+
+Renders a select dropdown; each comma-separated param after `state.var` becomes an option whose value **and label** are the raw text. Options **cannot contain commas** (the tag is comma-split). The option whose value matches the variable is preselected; if the variable is unset or matches nothing, the first option is shown — so **declare the variable with the desired default option value** for a meaningful preselection.
+
+**Example:**
+```
+Choose your class: {dropdown: state.class, warrior, mage, rogue}
+```
+
+Selecting an option immediately updates `state.var` and re-renders the passage.
+
 ---
 
 ## 3. Variable System
@@ -274,6 +435,16 @@ In the `variables` object of the project JSON:
 | `true` / `false` | `boolean` | |
 | `123` | `number` | Integers and floats |
 | `"string"` | `string` | Enter raw text without quotes in the editor form (e.g., `Alex` not `"Alex"`) |
+| `["a", "b", 1]` | `array` | Enter as `["a", "b"]` in the editor form; values are re-parsed with JSON when saved |
+
+### Arrays
+Variables of type `array` hold an ordered list. Enter them in the variable form as JSON, e.g. `["sword", "shield", "potion"]`.
+
+- Read a single element with the index: `{var: state.inventory[0]}`.
+- Read the whole array with `{var: state.inventory}` (elements joined with `, `).
+- Loop over elements with a counter and the array's `.size`:
+  `{set: state.i = 0}{while: state.i < state.inventory.size}{var: state.inventory[state.i]}{set: state.i = state.i + 1}{endwhile}`
+- Test emptiness / membership in conditions, e.g. `{if: state.inventory.size > 0}...{endif}`.
 
 ### Interpolation in Text
 Use `{var:state.varname}` in the node `text` field. At render time it is replaced with the current value. Shows as `{var:state.varname}` if the variable doesn't exist. The shorter `{state.varname}` is also accepted.
@@ -529,11 +700,11 @@ this.startNode = explicitStart || (mainNodeIds.length > 0 ? mainNodeIds[0] : (no
 The node with `is_start: true` is the start. If none is marked, the first non-`side_panel` node in the `nodes` array is used. If all nodes are `side_panel`, falls back to the very first node (or `null` if empty).
 
 ### Render Cycle
-1. Conditional blocks `{if:}/{elseif:}/{else}/{endif}` are resolved to the winning branch
-2. `{redirect:}` in resolved text is checked — if found, `{set:}` mutations execute and redirect fires (returns to step 1 with target node)
+1. The directive walker (`processDirectives`) resolves `{set:}` mutations, `{var:}` interpolation, `{if:}/{elseif:}/{else}/{endif}` branches, and `{while:}/{do}` loops in textual order (each pass through a loop body re-evaluates all directives against current state)
+2. `{redirect:}` in resolved text is checked — if found, the redirect fires (mutations have already been applied by the walker)
 3. On Enter redirect is checked (if condition met, redirect to target node)
-4. `{set:}` mutations are executed, remaining `{redirect:}` directives are stripped
-5. Text is converted to HTML: `{random:}` resolved, HTML-escaped, images, links, bold/italic, and headings rendered, `{wait:}` blocks converted to animated containers, `{dialogue:}` blocks rendered as styled dialogue boxes, `{var:}` tokens replaced with current state values
+4. Remaining `{redirect:}` directives are stripped
+5. Text is converted to HTML: `{random:}` resolved, HTML-escaped, images, links, bold/italic, and headings rendered, `{wait:}` blocks converted to animated containers, `{dialogue:}` blocks rendered as styled dialogue boxes, `{var:}` placeholder tokens replaced with the captured state values
 6. Choice prerequisites and action conditions are evaluated during link rendering (failing links get `class="disabled"`)
 7. The HTML is injected into the passage-content div
 8. Side panel is re-rendered (via the same `_preprocessText` pipeline)

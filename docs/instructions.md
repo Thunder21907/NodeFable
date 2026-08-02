@@ -36,20 +36,25 @@ Actions are conditional mutation sequences triggered by `[text](action:action_id
 
 Use `{wait:N,fade:M}...{endwait}` for timed animations. Each `{wait:N,fade:M}...{endwait}` block is a single item — content fades in, stays visible N ms, then fades out. Multiple blocks play sequentially. Content after the final `{endwait}` stays hidden until the sequence finishes, then fades in. Default fade = 500ms if omitted.
 
-### Images
+### Images & Video
 
-Insert images with `![alt text](/api/assets/GameName/filename.png)`. Custom dimensions via `{img:w=200,h=300}` after the closing `)`:
+Insert images with `{img: url, options}` and video with `{video: url, options}`:
 
 ```
 // Full width (default)
-![bg](/api/assets/MyGame/forest.png)
+{img: /api/assets/MyGame/forest.png}
 
 // Width only, height auto-scales
-![portrait](/api/assets/MyGame/alex.png){img:w=200}
+{img: /api/assets/MyGame/alex.png, w=200}
 
-// Both dimensions
-![banner](/api/assets/MyGame/banner.png){img:w=800,h=200}
+// Both dimensions + alt text
+{img: /api/assets/MyGame/banner.png, w=800, h=200, alt=Banner}
+
+// Video: autoplay + loop by default; pass mute for reliable autoplay
+{video: /api/assets/MyGame/rain.mp4, w=480}
 ```
+
+Options are comma-separated `key=value` pairs (spaces around `=` are fine). `w=` and `h=` set pixel dimensions; `alt=` sets accessibility text; video adds `autoplay` (default true), `repeat`/loop (default true), and `mute` (default false) as bare flags or `key=false`. Unknown keys are ignored. The target is everything before the first comma, so spaces in filenames are preserved; the target and `alt` cannot contain `,`, `}`, or `"`. The old `![alt](url)` form is removed and renders literally.
 
 On export, asset URLs are automatically rewritten from `/api/assets/GameName/file.png` to `assets/file.png`. External URLs also work.
 
@@ -122,7 +127,7 @@ Each node gets a unique `id` (slug) when created, derived from its title. You ca
 - **Conditional text**: `{if: state.var}shown if true{elseif: state.var2}alt shown{else}fallback{endif}` — supports nesting and chained branches
 - **Notifications**: `notify("msg")` available inside mutation strings for custom toasts; numeric stat changes auto-notify
 - **Save/Load**: Auto-saves to `localStorage` after every mutation; restores on page load; call `game.newGame()` in mutation to reset
-- **Images**: `![alt](/api/assets/GameName/file.png)` for inline images; append `{img:w=N,h=N}` for custom dimensions, e.g. `![icon](...){img:w=32}`
+- **Images/Video**: `{img: url, w=32}` for inline images; `{video: url, w=480}` for video players (see the Images & Video section above)
 
 ## Example Structure
 

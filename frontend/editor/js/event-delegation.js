@@ -7,15 +7,10 @@ import { runValidation, validateDeadEnds, validateOrphans } from './validation.j
 import { getEditorValue } from './codemirror-setup.js';
 import {
     removeChoiceLink,
-    updateAction,
-    deleteAction,
-    addPair,
-    removePair,
     editNode,
     addNode,
     deleteNodeOverlay,
     startLinking,
-    insertAction,
     updateCurrentNode,
     deleteCurrentNode,
     cancelLinking,
@@ -105,38 +100,6 @@ export function setupEditorDelegation() {
         const targetSlug = btn.dataset.targetSlug;
         if (!isNaN(nodeId) && targetSlug) {
             removeChoiceLink(nodeId, targetSlug);
-        }
-    });
-
-    document.getElementById('actions-list').addEventListener('click', (e) => {
-        const card = e.target.closest('.choice-card');
-        if (!card) return;
-        const nodeId = parseInt(card.dataset.nodeId);
-        const aIndex = parseInt(card.dataset.actionIndex);
-        if (isNaN(nodeId) || isNaN(aIndex)) return;
-
-        const action = e.target.closest('[data-action]');
-        if (!action) return;
-
-        switch (action.dataset.action) {
-            case 'update-action':
-                updateAction(nodeId, aIndex);
-                break;
-            case 'delete-action':
-                deleteAction(nodeId, aIndex);
-                break;
-            case 'add-pair':
-                addPair(nodeId, aIndex);
-                break;
-            case 'remove-pair': {
-                const pairCard = action.closest('.pair-card');
-                if (!pairCard) return;
-                const pIndex = parseInt(pairCard.dataset.pairIndex);
-                if (!isNaN(pIndex)) {
-                    removePair(nodeId, aIndex, pIndex);
-                }
-                break;
-            }
         }
     });
 }
@@ -283,7 +246,6 @@ export function setupButtonDelegation() {
             case 'addVariable': addVariable(); break;
             case 'hideVariableForm': hideVariableForm(); break;
             case 'refreshAssets': refreshAssets(); break;
-            case 'insertAction': insertAction(); break;
             case 'updateCurrentNode': updateCurrentNode(); break;
             case 'deleteCurrentNode': deleteCurrentNode(); break;
             case 'confirmSave': confirmSave(); break;
@@ -557,14 +519,6 @@ export function _buildSavePayload(name) {
             prerequisite: c.prerequisite || null,
             mutation: c.mutation || null
         }));
-        const actions = (data.actions || []).map(a => ({
-            id: a.id,
-            text: a.text || '',
-            pairs: (a.pairs || []).map(p => ({
-                condition: p.condition || null,
-                mutation: p.mutation
-            }))
-        }));
 
         nodes.push({
             id: data.slug,
@@ -573,7 +527,6 @@ export function _buildSavePayload(name) {
             x: drawflowNode.pos_x,
             y: drawflowNode.pos_y,
             choices: choices,
-            actions: actions,
             on_enter: data.on_enter || null,
             is_start: data.is_start || false,
             group: data.group || 'side_panel'
@@ -599,14 +552,6 @@ export function _buildSavePayload(name) {
                     text: c.text || '',
                     prerequisite: c.prerequisite || null,
                     mutation: c.mutation || null
-                })),
-                actions: (cn.actions || []).map(a => ({
-                    id: a.id,
-                    text: a.text || '',
-                    pairs: (a.pairs || []).map(p => ({
-                        condition: p.condition || null,
-                        mutation: p.mutation
-                    }))
                 })),
                 on_enter: cn.on_enter || null,
                 is_start: cn.is_start || false,
@@ -723,14 +668,6 @@ export async function confirmLoad() {
                 title: node.title || '',
                 text: node.text || '',
                 choices: [],
-                actions: (node.actions || []).map(a => ({
-                    id: a.id,
-                    text: a.text || '',
-                    pairs: (a.pairs || []).map(p => ({
-                        condition: p.condition || '',
-                        mutation: p.mutation || ''
-                    }))
-                })),
                 on_enter: node.on_enter || null,
                 slug: node.id,
                 is_start: node.is_start || false,
@@ -944,17 +881,6 @@ export function importNode() {
                 text: c.text || '',
                 targetSlug: c.targetSlug || c.target_node_id || ''
             })) : [],
-            actions: Array.isArray(obj.actions) ? obj.actions.map(a => {
-                if (typeof a === 'string') return a;
-                return {
-                    text: a.text || a.prompt || '',
-                    id: a.id || '',
-                    pairs: (Array.isArray(a.pairs) ? a.pairs : []).map(p => ({
-                        condition: p.condition || p.label || '',
-                        mutation: p.mutation || ''
-                    }))
-                };
-            }) : [],
             on_enter: (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null,
             is_start: false,
             group: 'side_panel'
@@ -979,18 +905,6 @@ export function importNode() {
         targetSlug: c.targetSlug || c.target_node_id || ''
     })) : [];
 
-    const actions = Array.isArray(obj.actions) ? obj.actions.map(a => {
-        if (typeof a === 'string') return a;
-        return {
-            text: a.text || a.prompt || '',
-            id: a.id || '',
-            pairs: (Array.isArray(a.pairs) ? a.pairs : []).map(p => ({
-                condition: p.condition || p.label || '',
-                mutation: p.mutation || ''
-            }))
-        };
-    }) : [];
-
     const on_enter = (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null;
     const is_start = obj.is_start === true;
 
@@ -999,7 +913,6 @@ export function importNode() {
         text: typeof obj.text === 'string' ? obj.text : '',
         slug: slug,
         choices: choices,
-        actions: actions,
         on_enter: on_enter,
         is_start: is_start,
         group: obj.group || ''

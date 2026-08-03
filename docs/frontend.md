@@ -108,8 +108,8 @@
 **`#tab-markdown`** (lines 126–135):
 - Contains `<div id="passage-content-editor">` — hosts the CodeMirror 5 instance
 - CodeMirror initialized with custom `nodefable` mode (markdown + NodeFable syntax overlay), `material-darker` theme, line numbers, line wrapping, and matchbrackets
-- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{include:}`, `state.varname`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` and `[text](action:id)` links
-- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` or `{include:` context), action IDs (in `action:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, etc.)
+- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{action:}`, `{endaction}`, `{include:}`, `state.varname`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` links
+- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` or `{include:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, `action:`, `endaction`, etc.)
 - Below: `.helper-text` with link to Tutorial page
 
 ---
@@ -146,18 +146,12 @@ Class `.md-toolbar`, 8 buttons:
 - `#choices-list` — container for `.choice-card` elements
 - `#no-choices-msg` placeholder when empty
 
-### 4.4 Actions (lines 532–536)
-
-- `#actions-list` — container for action cards
-- Default: "No actions defined." placeholder text
-- "+ Add Action" button calls `insertAction()`
-
-### 4.5 On Enter (lines 538–541)
+### 4.4 On Enter (lines 538–541)
 
 - `#onenter-section` — placeholder for redirect configuration
 - Default: "No on-enter redirect configured."
 
-### 4.6 Save/Delete Buttons (lines 543–546)
+### 4.5 Save/Delete Buttons (lines 543–546)
 
 | Button | Handler | Class |
 |--------|---------|-------|
@@ -274,14 +268,8 @@ Class `.md-toolbar`, 8 buttons:
 - `.choice-target`: success-color, 600 weight — shows linked node name
 - `.choice-header`: flex row with delete button
 - `.choice-link-text`: left-accent-bordered block showing parsed link text with `<em>` for linked node
-- `.action-link-text`: similar but green-left-bordered, monospace, with `text-overflow: ellipsis`
 
-### 9.6 Pair Cards (lines 310–329)
-
-- `.pair-card`: darker (`#1e1e1e`), for action key-value pairs
-- `.pair-header`: flex row, header-style label
-
-### 9.7 Node Overlay (lines 331–351)
+### 9.6 Node Overlay (lines 331–351)
 
 - `.node-overlay`: absolute positioned above nodes (top: -35px), hidden by default
 - Visible on `.drawflow-node:hover` (line 349–351)

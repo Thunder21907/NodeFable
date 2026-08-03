@@ -10,13 +10,8 @@ import { toggleSpellcheck, insertMarkdown } from './js/codemirror-setup.js';
 import { insertImage } from './js/asset-explorer.js';
 import {
     toggleStartNode,
-    insertAction,
     toggleOnEnter,
     updateOnEnterField,
-    deleteAction,
-    addPair,
-    removePair,
-    updateAction,
     saveCurrentContent
 } from './js/node-editor.js';
 import { changeNodeGroup, _repositionPortalOutputs } from './js/group-manager.js';
@@ -26,17 +21,12 @@ import { ensureSidePanelNode, setupEditorEvents } from './js/graph-engine.js';
 // Expose functions required by inline HTML event attributes (onclick, onchange, onblur).
 window.toggleOnEnter = toggleOnEnter;
 window.updateOnEnterField = updateOnEnterField;
-window.deleteAction = deleteAction;
-window.addPair = addPair;
-window.removePair = removePair;
-window.updateAction = updateAction;
 window.toggleSpellcheck = toggleSpellcheck;
 window.validateSlugOnBlur = validateSlugOnBlur;
 window.toggleStartNode = toggleStartNode;
 window.changeNodeGroup = changeNodeGroup;
 window.insertMarkdown = insertMarkdown;
 window.insertImage = insertImage;
-window.insertAction = insertAction;
 window.undo = undo;
 window.redo = redo;
 

@@ -38,6 +38,9 @@ CodeMirror.defineMode('nodefable', function (config) {
             if (stream.match(/^\{img:[^}]*\}/i)) return 'keyword';
             // {video:...}
             if (stream.match(/^\{video:[^}]*\}/i)) return 'keyword';
+            // {action:...} / {endaction}
+            if (stream.match(/^\{action:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/^\{endaction\}/i)) return 'keyword';
             // state.varname / temp.varname / array access: state.myarray[0] / state.myarray[state.id]
             if (stream.match(/(?:state|temp)\.\w+(?:\[[^\]]+\])?/)) return 'variable-2';
             // notify( / game.newGame(
@@ -63,8 +66,8 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
     let from = { line: cursor.line, ch: cursor.ch };
     let to = { line: cursor.line, ch: cursor.ch };
 
-    // Detect context: inside [...](node:slug| or [...](action:id|
-    const linkMatch = lineBefore.match(/\[[^\]]*\]\(((node:|action:)?([^)]*))$/);
+    // Detect context: inside [...](node:slug|
+    const linkMatch = lineBefore.match(/\[[^\]]*\]\(((node:)?([^)]*))$/);
     if (linkMatch && linkMatch[1]) {
         const full = linkMatch[1];
         const prefix = linkMatch[2] || '';
@@ -78,21 +81,9 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             }
             return { list, from, to };
         }
-        if (prefix === 'action:') {
-            from.ch = cursor.ch - typed.length;
-            for (const nodeId in state.nodesData) {
-                for (const action of (state.nodesData[nodeId].actions || [])) {
-                    if (action.id && action.id.startsWith(typed)) {
-                        list.push({ text: action.id, displayText: action.id });
-                    }
-                }
-            }
-            return { list, from, to };
-        }
         if (!prefix) {
             from.ch = cursor.ch - full.length;
             list.push({ text: 'node:', displayText: 'node:' });
-            list.push({ text: 'action:', displayText: 'action:' });
             return { list, from, to };
         }
     }
@@ -142,7 +133,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             'set:', 'redirect:', 'random:',
             'textfield:', 'textarea:', 'number:', 'checkbox:', 'dropdown:', 'radiogroup', 'radiobutton:', 'endradiogroup',
             'var:', 'wait:', 'endwait', 'dialogue:', 'enddialogue', 'img:', 'video:',
-            'include:',
+            'action:', 'endaction', 'include:',
             'true', 'false', 'notify(', 'game.newGame()'];
         for (const kw of keywords) {
             if (kw.startsWith(prefix)) {

@@ -14,7 +14,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `js/validation.js` | `validateDeadEnds`, `validateOrphans`, `runValidation` |
 | `js/variables-manager.js` | Variable CRUD + `renderVariables` |
 | `js/asset-explorer.js` | Asset tree/grid, breadcrumbs, copy/cut/paste/rename/delete/upload, `insertImage` |
-| `js/node-editor.js` | Passage editor, node CRUD, linking, choices/actions/on_enter editors |
+| `js/node-editor.js` | Passage editor, node CRUD, linking, choices/on_enter editors |
 | `js/group-manager.js` | Groups/portals: add/edit/collapse/load/move/delete, portal I/O label + output lines, batched node/connection creation |
 | `js/graph-engine.js` | `setupEditorEvents`, `injectOverlayToNode`/`_createOverlay`, `ensureSidePanelNode` |
 | `js/event-delegation.js` | All `setup*()` wiring, context menu, keyboard shortcuts, modal + save/load/export/import functions, `filterNodes` |
@@ -30,7 +30,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `state.editor` | `Drawflow` | The Drawflow canvas instance |
 | `state.selectedNodeId` | `number \| null` | Currently selected node's Drawflow numeric ID |
 | `state.linkingFromId` | `number \| null` | Node ID from which a link is being drawn |
-| `state.nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, actions, slug, on_enter, is_start, group}` |
+| `state.nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, slug, on_enter, is_start, group}` |
 | `state.slugToNodeId` | `object` | Slug → Drawflow numeric ID reverse lookup |
 | `state.variables` | `object` | Keyed by variable name → `{type, value}` |
 | `state.isEditingVariable` | `boolean` | True while the variable form is in edit mode |
@@ -66,7 +66,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `editor` | `Drawflow` | The Drawflow canvas instance |
 | `selectedNodeId` | `number \| null` | Currently selected node's Drawflow numeric ID |
 | `linkingFromId` | `number \| null` | Node ID from which a link is being drawn |
-| `nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, actions, slug, on_enter, is_start, group}` |
+| `nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, slug, on_enter, is_start, group}` |
 | `slugToNodeId` | `object` | Slug → Drawflow numeric ID reverse lookup |
 | `variables` | `object` | Keyed by variable name → `{type, value}` |
 | `isEditingVariable` | `boolean` | True while the variable form is in edit mode |
@@ -214,7 +214,7 @@ Returns `nodesData[nodeId].title` or `'Node ' + nodeId`.
 
 ### `ensureNodeData(nodeId)`
 
-Ensures `nodesData[nodeId]` exists with all required fields (`title`, `text`, `choices`, `actions`, `slug`, `is_start`, `on_enter`, `group`). Fills in missing fields with defaults (`group` defaults to `'side_panel'`). Slug is generated once and persisted.
+Ensures `nodesData[nodeId]` exists with all required fields (`title`, `text`, `choices`, `slug`, `is_start`, `on_enter`, `group`). Fills in missing fields with defaults (`group` defaults to `'side_panel'`). Slug is generated once and persisted.
 
 ### `addNode()`
 
@@ -280,7 +280,7 @@ Self-link cancels. If the target is a portal: with a specific `input_N` port it 
 3. If the node is a portal (`data.isPortal`), hides the passage editor and opens the group editor instead.
 4. Otherwise shows `#passage-editor`, populates title, content, slug, and error state.
 5. Shows/hides `#passage-is-start` checkbox (hidden for `side_panel`), sets its state.
-6. Calls `populateGroupDropdown()`, `renderChoices`, `renderActions`, `renderOnEnter`, `updateStartBadgeOnCanvas`.
+6. Calls `populateGroupDropdown()`, `renderChoices`, `renderOnEnter`, `updateStartBadgeOnCanvas`.
 
 ### `closePassageEditor()`
 
@@ -344,15 +344,9 @@ Renders `#choices-list`. For each choice: target title, extracted link text, Rem
 
 ---
 
-## Action Rendering & Management
+## Inline Action Blocks
 
-### `renderActions(nodeId)`
-
-Renders `#actions-list`. Each action card shows the `[text](action:id)` syntax, a text input, Update/Remove buttons, and per-pair Condition/Mutation inputs plus an "+ Add pair" button.
-
-### `deleteAction(nodeId, index)`, `addPair(nodeId, aIndex)`, `removePair(nodeId, aIndex, pIndex)`, `updateAction(nodeId, aIndex)`
-
-Full CRUD for action condition-mutation pairs. `updateAction` reads the DOM inputs and rewrites `action.text` / `action.pairs` (dropping empty mutations). Wired via `setupEditorDelegation()` on `#actions-list`.
+Action blocks are a runtime walker directive (`{action: text, condition, behavior}...{endaction}`) — there is no editor-side Actions panel or structured data model. See the Runtime section below for `applyActionBlock` and the walker branch. The editor contains no action UI.
 
 ---
 
@@ -414,7 +408,7 @@ Lightweight content sync: reads title, content, and slug from DOM and writes to 
 
 ### `updateCurrentNode()`
 
-Takes undo snapshot. Reads title, slug, content from DOM. Syncs `is_start` from checkbox (enforces single-start — unchecks all others). Updates slug references across all nodes (`choices[].targetSlug`, `on_enter.target_node_id`). Syncs group from dropdown, choice prerequisites/mutations, and action pairs from the DOM. Updates the Drawflow node label. Re-renders choices and on-enter.
+Takes undo snapshot. Reads title, slug, content from DOM. Syncs `is_start` from checkbox (enforces single-start — unchecks all others). Updates slug references across all nodes (`choices[].targetSlug`, `on_enter.target_node_id`). Syncs group from dropdown and choice prerequisites/mutations from the DOM. Updates the Drawflow node label. Re-renders choices and on-enter.
 
 ---
 
@@ -552,7 +546,7 @@ Async. Clears undo/redo stacks. Fetches the manifest (`GET /api/load/manifest?na
 
 ### `_buildSavePayload(name)`
 
-Serializes loaded nodes (choices → `target_node_id`, actions, on_enter, `is_start`, `group`), variables, cached collapsed-group data (from `collapsedGroupsData`), and the groups manifest.
+Serializes loaded nodes (choices → `target_node_id`, on_enter, `is_start`, `group`), variables, cached collapsed-group data (from `collapsedGroupsData`), and the groups manifest.
 
 ---
 
@@ -560,7 +554,7 @@ Serializes loaded nodes (choices → `target_node_id`, actions, on_enter, `is_st
 
 ### `showImportModal()`, `importNode()`
 
-The Import modal pastes a single node as JSON. `importNode()` validates that input is a JSON object with non-empty `id` and `title`. A node with `id === 'side_panel'` replaces the existing side panel node; otherwise a unique slug is generated. Choices, actions, and `on_enter` are normalized, `is_start` enforced single-start, and the node is added to the canvas. Runs `runValidation()`.
+The Import modal pastes a single node as JSON. `importNode()` validates that input is a JSON object with non-empty `id` and `title`. A node with `id === 'side_panel'` replaces the existing side panel node; otherwise a unique slug is generated. Choices and `on_enter` are normalized, `is_start` enforced single-start, and the node is added to the canvas. Runs `runValidation()`.
 
 ---
 
@@ -863,18 +857,18 @@ The exported game is `template.html` (one page, the full runtime). It does **no 
 
 ```
 render(nodeId)
-  ├─ resolve() → node text (choices/actions/on_enter merged)
+  ├─ resolve() → node text (choices/on_enter merged)
   ├─ if text contains {redirect:} → run processDirectives(), fire redirect, re-enter render()
   └─ else
        ├─ _preprocessText(text)
-       │    ├─ processDirectives(text)   ← directives: {set:} {var:} {if:} {while:} {do} {break} {continue} {for:} {unset:} {init} {include:}
+       │    ├─ processDirectives(text)   ← directives: {set:} {var:} {if:} {while:} {do} {break} {continue} {for:} {unset:} {init} {include:} {action:}
        │    └─ strip remaining {redirect:} directives
        └─ renderContent(text)
             ├─ {random:} resolved
             ├─ HTML-escape (links/images/bold/italic/headings rendered)
             ├─ {wait:}/{dialogue:} blocks → animated containers
             ├─ {var:} placeholder tokens (\u0000nfvar_<n>\u0000) → captured values
-            └─ choice/action links (prerequisites evaluated → class="disabled", indices into the merged list)
+            └─ choice links (prerequisites evaluated → class="disabled", indices into the merged list)
 ```
 
 ### Directive walker
@@ -897,8 +891,34 @@ Helpers (all on the runtime `Game`/engine object):
 | `_findForEnd(text)` | Returns `{ body, init, condition, update, end }` — the matching `{endfor}` (nesting-aware, counts `{for:}`/`{endfor}` depth, skips `{do}` blocks atomically), else `null` when the header has fewer than 3 semicolon-separated clauses or the block is unclosed. |
 | `_findInitEnd(text)` | Returns `{ body, end }` — the matching `{endinit}` (nesting-aware, counts `{init}`/`{endinit}` depth), else `null`. |
 | `_includeCount` / `_includeLimitNotified` | Per-render-pass state: how many passages have been spliced, and whether the one-time `Include limit exceeded.` toast already fired. |
-| `_includedChoices` / `_includedActions` | Accumulators of the choices/actions merged in by `{include:}` during the current `processDirectives` pass (reset at the top of every pass). |
-| `_activeChoices` / `_activeActions` / `_sidePanelActiveActions` | The merged choice/action lists `render()` / `renderSidePanel()` hand to `renderContent`, `navigateTo`, and `applyAction`. |
+| `_includedChoices` | Accumulator of the choices merged in by `{include:}` during the current `processDirectives` pass (reset at the top of every pass). |
+| `_activeChoices` | The merged choice list `render()` / `renderSidePanel()` hand to `renderContent` and `navigateTo`. |
+| `_actionBlocks` | Per-render capture of raw action-block bodies, in walker encounter order (reset at the top of `render()` and in `init()`). Each rendered block pushes its body and emits `data-action-block="<index>"`. |
+| `_actionBlockLinks` | Per-render array of the anchor HTML for each rendered action block (same index as `_actionBlocks`). The walker pushes the link and emits a `\u0000nfaction_<idx>\u0000` placeholder token instead of raw HTML; `renderContent` restores the anchor **after** HTML-escaping so the tag survives. |
+
+### `{action:}` blocks
+
+`processDirectives` dispatches on `{action:` (case-insensitive) **before** the `{set:}` branch, so a body's `{set:}` is never executed during render. The walker:
+
+1. Finds the matching `{endaction}` via `text.indexOf` (first one wins — nesting unsupported). Unclosed → renders `{action:` literally.
+2. Splits params on commas: `label` (first field), optional `condition`, optional `behavior` (`disable` default / `hide`).
+3. Pushes the **raw body** onto `this._actionBlocks` and records its index.
+4. Evaluates the condition via `_evalBool` (try/catch → false). If false and behavior is `hide`, the whole block emits nothing; otherwise it pushes the anchor HTML (`<a href="#" data-action-block="<idx>" class="disabled">label</a>` when disabled) onto `_actionBlockLinks` and emits a `\u0000nfaction_<idx>\u0000` token. `renderContent` swaps the token back to the anchor after escaping.
+
+The body is **not walked for execution** at render — it is skipped verbatim between the two tags, so its `{set:}`/`{redirect:}` never fire on page load. Body directives only execute on click via `applyActionBlock`.
+
+### `applyActionBlock(idx)`
+
+The click delegation on `#app` matches `a[data-action-block]` (non-disabled only) and calls `applyActionBlock(parseInt(link.dataset.actionBlock, 10))`. It:
+
+1. Reads `this._actionBlocks[idx]` (no-op if missing).
+2. Runs `_processDirectives(body, false)` — executing `{set:}`/`{unset:}`/`{include:}`/nested `{if:}`/loops — and **discards the output**. `_freshEntry` is false here, so `{init}` in a body is skipped (init only fires on entry).
+3. Checks `_checkRedirects(out.text)` — a `{redirect: slug}` in the body navigates via `render(redirect)` (after `autoSave()`); the walker never strips redirects, so the body's survives to be honored here.
+4. Otherwise captures `#main-panel`'s `scrollTop`, re-renders the current node, and calls `_restoreScroll` to put the scroll position back, then `autoSave()`.
+
+`_restoreScroll(scroller, target)` re-applies `scroller.scrollTop = target` on every animation frame until it sticks or 300 frames elapse. A single restore (even inside one `requestAnimationFrame`) is a no-op when the re-render recreates media (`{img:}`/`{video:}`) that starts at ~0 height, collapsing the content so the browser clamps `scrollTop` to 0; retrying each frame until the media loads lets the content grow back to accept the old position. Redirects deliberately skip this and scroll to top.
+
+`_actionBlocks` is reset at the top of `render()` and in `init()`. Passage blocks precede side-panel blocks within a render cycle (passage renders first, then `renderSidePanel()`), and both standalone `renderSidePanel()` calls follow a full render, so indices stay in sync with the DOM. `renderContent` no longer handles action links — the `[text](action:id)` transform was removed (those links now fall through to the plain-text fallback).
 
 ### `{init}` blocks
 
@@ -932,10 +952,10 @@ The walker dispatches on `{include: slug}` (matched case-insensitively, so `{INC
 
 - **Unknown slug** → the tag renders literally (author-visible).
 - **Safety cap:** `_includeCount` (reset to 0 at the top of each `processDirectives` pass) stops expansion after **100 splices**; the `{include:}` tag is then dropped and `notify('Include limit exceeded.')` fires exactly once per pass via the `_includeLimitNotified` flag.
-- **List merge:** the target's `choices`/`actions` are pushed onto `_includedChoices`/`_includedActions` **before** its text is walked, so innermost/nested includes accumulate in textual order. When `_inInit` is true (an `{init}` body), mutations from the included text apply but choices/actions are **not** pushed — init output is suppressed, so any links pushed there would never render and would shift the `data-choice-index` alignment.
+- **List merge:** the target's `choices` are pushed onto `_includedChoices` **before** its text is walked, so innermost/nested includes accumulate in textual order. When `_inInit` is true (an `{init}` body), mutations from the included text apply but choices are **not** pushed — init output is suppressed, so any links pushed there would never render and would shift the `data-choice-index` alignment.
 - **Recursion:** the target's text is walked with the **same `inLoop` flag**, so `{break}`/`{continue}`/`{while:}` inside an included passage behave as if written inline. A `{redirect:}` in included text stays in the walker output and is caught by `render()`'s `_checkRedirects`.
 - **No `on_enter`:** only `text` is spliced; the target's `on_enter` hook never runs.
-- **Index-alignment invariant:** the merged list handed to `renderContent` must contain exactly the choices/actions whose links survive the walk — an untaken `{if:}` branch pushes nothing and emits no links. `render()` builds `mergedChoices`/`mergedActions` = host lists + `_includedChoices`/`_includedActions`, stores them as `_activeChoices`/`_activeActions` **before** calling `renderSidePanel()` (the side panel's own `processDirectives` pass resets the `_included*` accumulators), and passes the merged lists to `renderContent` so `data-choice-index`/`data-action` attributes line up with `navigateTo`/`applyAction` lookups. `renderSidePanel()` does the same merge and stores `_sidePanelActiveActions`; `applyAction(actionId)` falls back from `_activeActions` to `_sidePanelActiveActions || sideNode.actions` when the main passage has no matching action.
+- **Index-alignment invariant:** the merged list handed to `renderContent` must contain exactly the choices whose links survive the walk — an untaken `{if:}` branch pushes nothing and emits no links. `render()` builds `mergedChoices` = host choices + `_includedChoices`, stores it as `_activeChoices` **before** calling `renderSidePanel()` (the side panel's own `processDirectives` pass resets the `_includedChoices` accumulator), and passes the merged list to `renderContent` so `data-choice-index` attributes line up with `navigateTo` lookups. Inline action blocks need no such bookkeeping: the walker captures each body into `_actionBlocks` and emits `data-action-block="<index>"` inline, and `applyActionBlock(idx)` reads the capture at click time.
 
 ### Form elements
 
@@ -980,8 +1000,8 @@ updateConnectionNodes(nodeId)
 
 | Function | Listens on | Handles |
 |---|---|---|
-| `setupEditorDelegation()` | `#choices-list`, `#actions-list` | Remove-choice buttons; action Update/Delete/Add-pair/Remove-pair |
-| `setupButtonDelegation()` | `document.body` | `[data-action]` buttons: `addNode`, `addGroup`, `showSaveModal`, `showLoadModal`, `exportGame`, `previewGame`, `runValidation`, `openTutorial`, `showVariableForm`, `addVariable`, `hideVariableForm`, `refreshAssets`, `insertAction`, `updateCurrentNode`, `deleteCurrentNode`, `confirmSave`, `confirmLoad`, `importNode`, `confirmImport`, `closeModal` |
+| `setupEditorDelegation()` | `#choices-list` | Remove-choice buttons |
+| `setupButtonDelegation()` | `document.body` | `[data-action]` buttons: `addNode`, `addGroup`, `showSaveModal`, `showLoadModal`, `exportGame`, `previewGame`, `runValidation`, `openTutorial`, `showVariableForm`, `addVariable`, `hideVariableForm`, `refreshAssets`, `updateCurrentNode`, `deleteCurrentNode`, `confirmSave`, `confirmLoad`, `importNode`, `confirmImport`, `closeModal` |
 | `setupNodeOverlayDelegation()` | `#tab-graph` | Overlay `edit` / `delete` / `link` buttons |
 | `setupAssetDelegation()` | `#asset-tree`, `#ae-file-grid`, `#ae-breadcrumb` | Tree toggle/copy/delete/new-folder/upload; grid selection + navigation; breadcrumb |
 | `setupAEToolbar()` | `#ae-toolbar` | `newFolder`, `upload`, `rename`, `delete`, `copy`, `cut`, `paste` |

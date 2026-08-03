@@ -1,6 +1,6 @@
 # AI Writer Instructions: Creating a NodeFable Game
 
-You are an AI Writer assistant tasked with creating interactive branching stories for the NodeFable engine. Your output is a single JSON file that defines all story content, variables, choices, and actions.
+You are an AI Writer assistant tasked with creating interactive branching stories for the NodeFable engine. Your output is a single JSON file that defines all story content, variables, and choices.
 
 ## Your Job
 
@@ -11,7 +11,7 @@ Given a story premise or outline from the user, produce a valid `project.json` f
 The NodeFable engine compiles your JSON into a standalone HTML game. At runtime:
 
 1. The player sees story text rendered as HTML
-2. Clickable links in the text let them navigate to other nodes or trigger actions
+2. Clickable links in the text let them navigate to other nodes or trigger inline action blocks
 3. Variables track game state (HP, gold, flags, etc.)
 4. Prerequisite expressions gate which choices are available
 5. Mutation statements change variables when choices are made
@@ -30,7 +30,21 @@ Each node is a story passage. One node is special: `"side_panel"` — its text r
 Choices link one node to another. They are created by placing `[link text](node:target_slug)` in the node's `text` field. You can attach prerequisite expressions (to show/hide the link) and mutation statements (to change state when clicked).
 
 ### Actions
-Actions are conditional mutation sequences triggered by `[text](action:action_id)` links. Each action contains an array of `pairs`. The runtime finds the **first** pair whose condition is met (or has no condition) and executes its mutation. If a pair has no condition, it always runs.
+Actions are **inline paired blocks** placed in the node `text`: `{action: label, condition, behavior}...{endaction}`. The label renders as a clickable link; clicking it executes the body's side-effect directives (`{set:}`, `{unset:}`, nested `{if:}`, loops) **once**, re-renders the passage, and auto-saves. The body never renders as visible output.
+
+- `label` — the clickable text (comma-free; a comma splits params).
+- `condition` (optional) — JS expression vs `state`/`temp`. If false, the link renders disabled (`disable`, default) or is hidden (`hide`).
+- Body — `{set:}`, `{unset:}`, `{include:}`, `{if:}`/`{elseif:}`/`{else}`, loops, `{audio:}`; a `{redirect: slug}` in the body navigates on click.
+
+Combat pattern (old condition-pair chains map to nested branches):
+```
+{action: Attack}{if: state.strength > 5}{set: state.enemy_hp -= 10}{else}{set: state.enemy_hp -= 2}{endif}{endaction}
+```
+Click-to-reveal recipe (flag + `{if:}` in the surrounding text):
+```
+{action: Open the chest}{set: state.has_key = true}{endaction}
+{if: state.has_key}You found a rusty key.{else}A locked chest sits here.{endif}
+```
 
 ### Wait Sequences (Time Transitions)
 
@@ -89,12 +103,11 @@ Every story MUST have a node with `id: "side_panel"`. This is never shown as a m
     "id": "side_panel",
     "title": "Status",
     "text": "HP: {var:state.hp} | Gold: {var:state.gold} | Key: {var:state.has_key}",
-    "choices": [],
-    "actions": []
+    "choices": []
 }
 ```
 
-The `{variable_name}` syntax interpolates current runtime values.
+The `{variable_name}` syntax interpolates current runtime values. Put `{action: ...}...{endaction}` blocks in the side panel text to add persistent HUD buttons.
 
 ## Step-by-Step Workflow
 
@@ -103,11 +116,10 @@ The `{variable_name}` syntax interpolates current runtime values.
 3. **Write the `side_panel`** — Create a HUD node showing key stats
 4. **Write all story nodes** — Each node gets a unique `id` (slug), `title`, and `text`
 5. **Add navigation links** — Use `[text](node:slug)` to connect passages
-6. **Add actions** — Use `[text](action:id)` for conditional mutations (combat, shopping, etc.)
+6. **Add action blocks** — Use `{action: label, condition}{set: ...}{endaction}` inline for conditional mutations (combat, shopping, etc.)
 7. **Define choices array** — For each choice link, add a corresponding entry with `prerequisite` and/or `mutation`
-8. **Define actions array** — For each action link, define its condition/mutation pairs
-9. **Add On Enter redirects** — For auto-triggered events (urgent scenes, character approaches)
-10. **Test** — Load the project in the editor, use <strong>Preview Game</strong> to test live in a new tab, or hit `GET /api/export/<GameName>` to download the standalone HTML
+8. **Add On Enter redirects** — For auto-triggered events (urgent scenes, character approaches)
+9. **Test** — Load the project in the editor, use <strong>Preview Game</strong> to test live in a new tab, or hit `GET /api/export/<GameName>` to download the standalone HTML
 
 ## Node IDs (Slugs)
 
@@ -120,7 +132,7 @@ Each node gets a unique `id` (slug) when created, derived from its title. You ca
 - Prerequisite expressions use `state.variable_name` syntax (e.g. `state.hp > 0`)
 - Mutation statements also use `state.variable_name` (e.g. `state.hp -= 10`)
 - If `prerequisite` is `null`, the choice is always available
-- If `condition` is `null` in an action pair, that pair always matches
+- If an action block's `condition` is omitted, it is always enabled; if it evaluates false, the link is disabled or hidden (`hide`)
 - Keep expression syntax simple — the runtime uses `new Function()` for evaluation
 - **Time advances proportionally**: only advance `time_of_day` for substantial activities (classes, work shifts, full dates). Brief encounters (bumping into someone, a quick chat) should NOT advance time — the player should still be able to do other things in the same time slot.
 - **On Enter**: `"on_enter": {"condition": "JS expr", "target_node_id": "slug", "mutation": "optional JS"}` — auto-redirects on node entry

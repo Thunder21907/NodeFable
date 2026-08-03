@@ -543,39 +543,6 @@
             color: var(--accent-color);
             font-style: italic;
         }
-        .action-link-text {
-            font-size: 0.8rem;
-            color: #aaa;
-            margin-bottom: 8px;
-            padding: 4px 8px;
-            background: #2a2a2a;
-            border-radius: 3px;
-            border-left: 3px solid var(--success-color);
-            font-family: 'Courier New', monospace;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .pair-card {
-            background: #1e1e1e;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            padding: 10px;
-            margin-bottom: 6px;
-        }
-        .pair-card label {
-            font-size: 0.75rem;
-            color: #aaa;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }
-        .pair-card .pair-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 4px;
-        }
 
         /* Node Overlay Buttons */
         .node-overlay {
@@ -867,7 +834,6 @@
         .btn-primary:hover { filter: brightness(1.2); }
         .btn-secondary { background: #555; }
         .btn-refresh { font-size: 0.7rem; padding: 2px 8px; }
-        .btn-add-action { font-size: 0.85rem; margin-top: 4px; }
         .btn-block { width: 100%; }
         .section-title { font-size: 1rem; margin-bottom: 12px; }
         .section-title-flush { font-size: 1rem; margin: 0; }
@@ -1186,19 +1152,12 @@
                     <button type="button" class="md-btn" onclick="insertImage()" title="Image"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z"/></svg></button>
                     <button type="button" class="md-btn" onclick="insertMarkdown('\n- ','')" title="Bullet List"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em"><path d="M12 10a2 2 0 1 0 0 4 2 2 0 1 0 0-4z"/></svg></button>
                     <button type="button" class="md-btn" onclick="insertMarkdown('\n1. ','')" title="Numbered List">1.</button>
-                    <button type="button" class="md-btn" onclick="insertAction()" title="Action (variable mutation)"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M9 7L10 0H8L2 7V9H7L6 16H8L14 9L14 7H9Z"/></svg></button>
                 </div>
 
                 <h3>Choices (Links)</h3>
                 <div id="choices-list">
                     <p id="no-choices-msg" class="text-muted-sm">Use the Link button [Link] on a node to connect passages.</p>
                 </div>
-
-                <h3 class="subsection-title">Actions</h3>
-                <div id="actions-list">
-                    <p class="text-muted-sm">No actions defined.</p>
-                </div>
-                <button type="button" data-action="insertAction" class="btn-add-action">+ Add Action</button>
 
                 <h3 class="subsection-title">On Enter</h3>
                 <div id="onenter-section">

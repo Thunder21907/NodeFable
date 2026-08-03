@@ -358,14 +358,6 @@ export async function loadGroupFromPortal(portalNodeId) {
                     prerequisite: c.prerequisite || '',
                     mutation: c.mutation || ''
                 })),
-                actions: (node.actions || []).map(a => ({
-                    id: a.id,
-                    text: a.text || '',
-                    pairs: (a.pairs || []).map(p => ({
-                        condition: p.condition || '',
-                        mutation: p.mutation || ''
-                    }))
-                })),
                 on_enter: node.on_enter || null,
                 slug: node.id,
                 is_start: node.is_start || false,
@@ -579,11 +571,6 @@ export function collapseGroup(groupId) {
                 text: c.text || '',
                 prerequisite: c.prerequisite || '',
                 mutation: c.mutation || ''
-            })),
-            actions: (data.actions || []).map(a => ({
-                id: a.id,
-                text: a.text || '',
-                pairs: a.pairs || []
             })),
             on_enter: data.on_enter || null,
             is_start: data.is_start || false,

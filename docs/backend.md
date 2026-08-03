@@ -54,9 +54,9 @@ Everything under `frontend/editor/` is served at `/editor/...`. The `html=True` 
 | Field | Type | Description |
 |-------|------|-------------|
 | `variables` | `Dict[str, VariableValue]` | The project's variable definitions |
-| `nodes` | `List[NodeData]` | All story nodes with choices, actions, on_enter, is_start |
+| `nodes` | `List[NodeData]` | All story nodes with choices, on_enter, is_start |
 
-See `docs/guide.md` for full schema detail of `NodeData`, `ChoiceLink`, `ActionPair`, `ActionData`, `OnEnter`.
+See `docs/guide.md` for full schema detail of `NodeData`, `ChoiceLink`, `OnEnter`.
 
 ## Helper Functions
 

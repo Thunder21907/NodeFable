@@ -29,18 +29,6 @@ Reference for writing interactive stories in the NodeFable JSON format.
                     "mutation": "JS statement or null"
                 }
             ],
-            "actions": [
-                {
-                    "id": "unique_action_id",
-                    "text": "Button display text",
-                    "pairs": [
-                        {
-                            "condition": "JS expression or null",
-                            "mutation": "JS statement"
-                        }
-                    ]
-                }
-            ],
             "on_enter": {
                 "condition": "JS expression or null",
                 "target_node_id": "slug_to_redirect_to",
@@ -80,7 +68,7 @@ Processed in the runtime engine: directive resolution (`processDirectives` — c
 | Syntax | Output | Example |
 |---|---|---|---|---|
 | `[text](node:slug)` | Clickable link that navigates to another passage | `[Go north](node:forest)` |
-| `[text](action:id)` | Clickable link that triggers an action | `[Fight](action:a0)` |
+| `{action: label, cond}...{endaction}` | Clickable link that runs its body once on click | `{action: Fight}state.goblin_hp -= 5{endaction}` |
 | `{random:max}` | Random integer 0 to max inclusive | `{random:10}` |
 | `{random:min,max}` | Random integer min to max inclusive | `{random:3,8}` |
 | `{set: expr}` | Inline mutation — executes JS expression at render time | `{set: state.time_text = "Morning"}` |
@@ -93,7 +81,8 @@ Processed in the runtime engine: directive resolution (`processDirectives` — c
 | `{continue}` | Skip to the next iteration's condition check | `{if: state.skip}{continue}{endif}` |
 | `{unset: state.name}` | Delete a variable from `state` or `temp`; `{unset: temp}` clears all scratch | `{unset: state.hp}` |
 | `{init}...{endinit}` | Setup block — mutations run once per fresh entry; body produces no output | `{init}{set: state.items = [1,2,3]}{endinit}` |
-| `{include: slug}` | Splice another passage's text into this one (choices/actions merge) | `{include: prologue}` |
+| `{include: slug}` | Splice another passage's text into this one (choices merge; inline action blocks work) | `{include: prologue}` |
+| `{action: label, cond}...{endaction}` | Clickable link whose body runs once on click (see §5) | `{action: Attack}state.enemy_hp -= 5{endaction}` |
 | `{wait:N}...{endwait}` | Timed sequence — content fades in N ms, then fades out (500ms fade default) | `{wait:2000}...{endwait}` |
 | `{wait:N,fade:M}...{endwait}` | Wait sequence with custom fade duration M (ms) | `{wait:2000,fade:800}text{endwait}` |
 | `{dialogue:...}...{enddialogue}` | Styled dialogue block with optional image and speaker | `{dialogue: Bob}Hello!{enddialogue}` |
@@ -222,11 +211,11 @@ Renders as `012`.
 Use `{include: slug}` to splice another passage's text into the current passage at render time. The tag is matched case-insensitively (write it lowercase): `{include: prologue}`.
 
 - **Text is concatenated in place** — included text is processed like any other markup, so `{var:}`, `{if:}`, loops, images, and nested `{include:}` all work inside it. A `{redirect:}` in the included text redirects the player, but only if the include is actually reached.
-- **Choices and actions merge.** Links in the included passage become real, clickable choices/actions in the host passage — mutations, prerequisites, and on-enter hooks all work. The host's own choices/actions come first, then included ones in textual order (innermost includes first).
+- **Choices merge.** Links in the included passage become real, clickable choices in the host passage — mutations, prerequisites, and on-enter hooks all work. The host's own choices come first, then included ones in textual order (innermost includes first). Inline action blocks written in the included text render and work normally.
 - **`{on_enter}` is not inherited** — the included passage's on-enter hook does not run.
 - **Unknown slug:** if no passage matches, `{include: missing}` renders literally so the author notices.
 - **Circular includes** are the author's responsibility. A safety counter stops expansion after 100 splices per render pass and shows a one-time toast (`Include limit exceeded.`).
-- **Inside `{init}`:** text mutations apply but the merged choices/actions are dropped (init output is suppressed anyway).
+- **Inside `{init}`:** text mutations apply but the merged choices are dropped (init output is suppressed anyway).
 - **Reusable:** the same passage can be included in many places; each splice is independent. The classic use is a shared footer or a "welcome" preamble referenced by several passages.
 
 ```json
@@ -491,64 +480,58 @@ When a choice is clicked:
 
 ---
 
-## 5. Actions System
+## 5. Inline Action Blocks
 
-### How Actions Work
-Actions are triggered by `[text](action:action_id)` links. Unlike choices, actions do NOT navigate — they only modify state and re-render the current node.
+### How Action Blocks Work
+Actions are inline paired directives. Clicking the label executes the block's body — a side-effect block of `{set:}`/`{unset:}`/`{include:}`/`{if:}`/loops — exactly once, then re-renders the current node and auto-saves. Unlike choices, action blocks do NOT navigate (unless the body contains `{redirect:}`).
 
-### Action Fields
+### Syntax
 
-| Field | Required | Description |
-|---|---|---|
-| `id` | Yes | Unique within the node. Referenced by `[text](action:id)` |
-| `text` | Yes | Display text shown in the link (overrides the `[text]` portion) |
-| `pairs` | Yes | Array of condition+mutation objects |
-
-### Pairs Logic (First-Match Wins)
-
-The runtime iterates through `pairs` in order and executes the **first** matching pair's mutation, then stops. A pair matches if:
-
-- `condition` is `null` (always matches), OR
-- `condition` evaluates to `true`
-
-```javascript
-for (const pair of action.pairs) {
-    let met = true;
-    if (pair.condition) {
-        met = !!new Function('state', 'try { return ' + pair.condition + '; } catch(e) { return false; }')(this.state);
-    }
-    if (met) {
-        new Function('state', pair.mutation)(this.state);
-        break;  // first match wins, then stop
-    }
-}
+```
+{action: text, condition, behavior}body{endaction}
 ```
 
-### Pair Fields
-
-| Field | Required | Description |
+| Part | Required | Description |
 |---|---|---|
-| `condition` | No (`null`) | JS expression. If `null`, this pair always matches |
-| `mutation` | Yes | JS statement to execute |
+| `text` | Yes | The clickable label, rendered as a link. Static text only (no `{var:}` interpolation); a comma splits params so keep labels comma-free |
+| `condition` | No | JS expression vs `state`/`temp`, same engine as choice prerequisites. If false, the link renders disabled (default) or is hidden (`hide` behavior) |
+| `behavior` | No | `disable` (default) or `hide`. With `disable`, a false condition gray-outs the link; with `hide`, the whole block renders nothing |
+| `body` | — | Side-effect directives executed on click. Never rendered as visible output |
+
+### Examples
+
+```markdown
+{action: Pay 10 gold, state.gold >= 10}{set: state.gold -= 10}{set: state.bought = true}{endaction}
+{action: Open the chest, state.has_key == true, hide}{set: state.chest_opened = true}{endaction}
+```
+
+### Body Contents
+
+The body may contain `{set:}`, `{unset:}`, `{include:}`, nested `{if:}`/`{elseif:}`/`{else}`, loops, and `{audio:}` (see §Audio). A `{redirect: slug}` inside the body navigates on click. The body is skipped verbatim during render — its mutations never fire on page load.
 
 ### Common Action Pattern: Combat
-```json
-{
-    "id": "a0",
-    "text": "Attack",
-    "pairs": [
-        {
-            "condition": "state.goblin_hp > 10",
-            "mutation": "state.goblin_hp -= 10"
-        },
-        {
-            "condition": "state.goblin_hp <= 10",
-            "mutation": "state.goblin_hp = 0; state.gold += 10"
-        }
-    ]
-}
+Old condition-mutation pairs map to nested `{if:}` branches (first-match-wins order preserved with `{elseif:}`/`{else}`):
+
+```markdown
+{action: Attack}{if: state.goblin_hp > 10}{set: state.goblin_hp -= 10}{else}{set: state.goblin_hp = 0}{set: state.gold += 10}{endif}{endaction}
 ```
-This handles the "still alive" vs "just killed" cases.
+
+### Click-to-Reveal Recipe
+Set a flag in the body, then gate the revealed content with `{if:}` in the surrounding passage text:
+
+```markdown
+{action: Open the chest}{set: state.has_key = true}{endaction}
+{if: state.has_key}You found a rusty key.{else}A locked chest sits here.{endif}
+```
+
+### Side Panel Buttons
+Put an action block in the `side_panel` node's text to create a persistent HUD button.
+
+### Limitations
+- The body never renders visible output — reveal-on-click uses a flag + `{if:}`.
+- The label is static (no `{var:}` interpolation inside the tag).
+- A comma in the label splits params (label = first field).
+- No nested `{action:}` blocks; an unclosed `{action:` renders literally as text.
 
 ---
 
@@ -705,13 +688,13 @@ The node with `is_start: true` is the start. If none is marked, the first non-`s
 3. On Enter redirect is checked (if condition met, redirect to target node)
 4. Remaining `{redirect:}` directives are stripped
 5. Text is converted to HTML: `{random:}` resolved, HTML-escaped, images, links, bold/italic, and headings rendered, `{wait:}` blocks converted to animated containers, `{dialogue:}` blocks rendered as styled dialogue boxes, `{var:}` placeholder tokens replaced with the captured state values
-6. Choice prerequisites and action conditions are evaluated during link rendering (failing links get `class="disabled"`)
+6. Choice prerequisites and action-block conditions are evaluated during render (failing links get `class="disabled"`; hidden blocks render nothing)
 7. The HTML is injected into the passage-content div
 8. Side panel is re-rendered (via the same `_preprocessText` pipeline)
 9. Wait sequences are started (timed fade-in/out animations)
 
 ### Side Panel
-The `side_panel` node is rendered once on init and re-rendered after every mutation. It does NOT show choices or actions — only its `text` content with variable interpolation using `{var:state.x}`.
+The `side_panel` node is rendered once on init and re-rendered after every mutation. It does NOT show choices — but inline action blocks in its text render as persistent HUD buttons, and `{var:state.x}` interpolation works.
 
 ---
 
@@ -727,8 +710,7 @@ The `side_panel` node is rendered once on init and re-rendered after every mutat
             "id": "side_panel",
             "title": "Status",
             "text": "Step: {var:state.step}",
-            "choices": [],
-            "actions": []
+            "choices": []
         },
         {
             "id": "start",
@@ -736,15 +718,13 @@ The `side_panel` node is rendered once on init and re-rendered after every mutat
             "text": "You are at the beginning. [Go forward](node:cave)",
             "choices": [
                 { "target_node_id": "cave", "prerequisite": null, "mutation": "state.step += 1" }
-            ],
-            "actions": []
+            ]
         },
         {
             "id": "cave",
             "title": "Cave",
             "text": "You found the cave.",
-            "choices": [],
-            "actions": []
+            "choices": []
         }
     ]
 }
@@ -758,9 +738,8 @@ The `side_panel` node is rendered once on init and re-rendered after every mutat
 | Choice without matching `[link](node:slug)` | Choice exists but player can't see it | Add the markdown link in `text` |
 | Markdown link without matching choice | Link renders as plain text fallback | Add the choice entry |
 | Using `variable_name` instead of `state.variable_name` | Expression evaluates against undefined | Always prefix with `state.` |
-| Multiple conditions matching in action pairs | Only the FIRST match executes | Order pairs from most-to-least specific |
-| Forgetting `"actions": []` on a node | Engine may error on undefined | Always include the field |
-| Non-unique action `id`s within a node | Wrong action may trigger | Use sequential ids: a0, a1, a2... |
+| Action block with an unclosed `{endaction}` | Renders literally as text | Always close the block |
+| Comma in an action label | Splits params (label truncates) | Keep labels comma-free |
 | Two nodes with the same slug `id` | One overwrites the other in the map | Use unique slugs |
 | On Enter redirect without loop guard | Can cause infinite redirect loop (A→B→A) | Use `state._visited.target_id` in the condition |
 | On Enter mutation runs every visit | If condition stays true, triggers repeatedly | Add `_visited` flag check to fire once |

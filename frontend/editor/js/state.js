@@ -74,9 +74,6 @@ export function ensureNodeData(nodeId) {
     if (!state.nodesData[nodeId].choices) {
         state.nodesData[nodeId].choices = [];
     }
-    if (!state.nodesData[nodeId].actions) {
-        state.nodesData[nodeId].actions = [];
-    }
     if (state.nodesData[nodeId].on_enter === undefined) {
         state.nodesData[nodeId].on_enter = null;
     }

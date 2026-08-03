@@ -4,7 +4,7 @@ import { state } from './state.js';
 import { escapeHtml, showToast, showLoader, hideLoader } from './ui-utils.js';
 import { validateDeadEnds, validateOrphans } from './validation.js';
 import { snapshotState } from './history.js';
-import { updateStartBadgeOnCanvas, closePassageEditor } from './node-editor.js';
+import { updateStartBadgeOnCanvas, updateUtilityBadgeOnCanvas, closePassageEditor } from './node-editor.js';
 
 export function addGroup() {
     // Create a unique group ID
@@ -55,6 +55,7 @@ export function addGroup() {
         choices: [],
         slug: 'portal_' + groupId,
         is_start: false,
+        is_utility: false,
         group: groupId,
         isPortal: true,
         portalGroupId: groupId,
@@ -361,6 +362,7 @@ export async function loadGroupFromPortal(portalNodeId) {
                 on_enter: node.on_enter || null,
                 slug: node.id,
                 is_start: node.is_start || false,
+                is_utility: node.is_utility || false,
                 group: node.group || groupId
             };
             state.slugToNodeId[node.id] = nodeId;
@@ -443,6 +445,7 @@ export async function loadGroupFromPortal(portalNodeId) {
         // Update start badges
         for (const nodeIdStr of Object.keys(state.nodesData)) {
             updateStartBadgeOnCanvas(parseInt(nodeIdStr));
+            updateUtilityBadgeOnCanvas(parseInt(nodeIdStr));
         }
 
         // Validate
@@ -574,6 +577,7 @@ export function collapseGroup(groupId) {
             })),
             on_enter: data.on_enter || null,
             is_start: data.is_start || false,
+            is_utility: data.is_utility || false,
             group: data.group || groupId,
             x: drawflowNode.pos_x,
             y: drawflowNode.pos_y
@@ -674,6 +678,7 @@ export function createPortalNode(group, posX, posY) {
             choices: [],
             slug: 'portal_' + group.id,
             is_start: false,
+            is_utility: false,
             group: group.id,
             isPortal: true,
             portalGroupId: group.id,

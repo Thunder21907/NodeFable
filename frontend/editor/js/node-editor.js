@@ -46,12 +46,18 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
     document.getElementById('passage-id-error').style.display = 'none';
 
     const isStartCheckbox = document.getElementById('passage-is-start');
+    const isUtilityCheckbox = document.getElementById('passage-is-utility');
     if (data.slug === 'side_panel') {
         isStartCheckbox.style.display = 'none';
+        if (isUtilityCheckbox) isUtilityCheckbox.style.display = 'none';
     } else {
         isStartCheckbox.style.display = 'flex';
+        if (isUtilityCheckbox) isUtilityCheckbox.style.display = 'flex';
         if (isStartCheckbox.checked !== !!data.is_start) {
             isStartCheckbox.checked = !!data.is_start;
+        }
+        if (isUtilityCheckbox && isUtilityCheckbox.checked !== !!data.is_utility) {
+            isUtilityCheckbox.checked = !!data.is_utility;
         }
     }
 
@@ -61,6 +67,7 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
     renderChoices(nid);
     renderOnEnter(nid);
     updateStartBadgeOnCanvas(nid);
+    updateUtilityBadgeOnCanvas(nid);
 }
 
 export function saveCurrentContent(nodeId) {
@@ -70,6 +77,8 @@ export function saveCurrentContent(nodeId) {
     if (!nodeData) return;
     nodeData.title = title;
     nodeData.text = content;
+    const isUtilityCheckbox = document.getElementById('passage-is-utility');
+    if (isUtilityCheckbox) nodeData.is_utility = isUtilityCheckbox.checked;
     const slugInput = document.getElementById('passage-id');
     if (slugInput) {
         const newSlug = slugInput.value.trim();
@@ -140,7 +149,10 @@ export function updateCurrentNode() {
             }
         }
     }
+    const isUtilityCheckbox = document.getElementById('passage-is-utility');
+    if (isUtilityCheckbox) nodeData.is_utility = isUtilityCheckbox.checked;
     updateStartBadgeOnCanvas(state.selectedNodeId);
+    updateUtilityBadgeOnCanvas(state.selectedNodeId);
 
     // Sync group from dropdown
     const groupSelect = document.getElementById('passage-group');
@@ -193,7 +205,7 @@ export function addNode() {
             'New Node'
         );
         const slug = generateUniqueSlug('new_node');
-        state.nodesData[nodeId] = { title: 'New Node', text: '', choices: [], slug: slug, is_start: false, group: '' };
+        state.nodesData[nodeId] = { title: 'New Node', text: '', choices: [], slug: slug, is_start: false, is_utility: false, group: '' };
         state.slugToNodeId[slug] = nodeId;
         _setupNodeCollapseButton(nodeId);
         console.log("Created new node:", nodeId, "slug:", slug);
@@ -286,10 +298,22 @@ export function toggleStartNode(checked) {
     updateStartBadgeOnCanvas(state.selectedNodeId);
 }
 
+export function toggleUtilityNode(checked) {
+    if (state.selectedNodeId == null) return;
+    state.nodesData[state.selectedNodeId].is_utility = checked;
+    updateUtilityBadgeOnCanvas(state.selectedNodeId);
+}
+
 export function updateStartBadgeOnCanvas(nodeId) {
     const nodeEl = document.getElementById('node-' + nodeId);
     if (!nodeEl) return;
     nodeEl.classList.toggle('node-start', !!(state.nodesData[nodeId] && state.nodesData[nodeId].is_start));
+}
+
+export function updateUtilityBadgeOnCanvas(nodeId) {
+    const nodeEl = document.getElementById('node-' + nodeId);
+    if (!nodeEl) return;
+    nodeEl.classList.toggle('node-utility', !!(state.nodesData[nodeId] && state.nodesData[nodeId].is_utility));
 }
 
 export function renderChoices(nodeId) {

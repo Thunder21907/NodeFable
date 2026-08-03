@@ -68,7 +68,7 @@ export function getNodeTitleBySlug(slug) {
 export function ensureNodeData(nodeId) {
     if (!state.nodesData[nodeId]) {
         const title = 'Node ' + nodeId;
-        state.nodesData[nodeId] = { title: title, text: '', choices: [], slug: generateUniqueSlug(slugify(title)), is_start: false, group: 'side_panel' };
+        state.nodesData[nodeId] = { title: title, text: '', choices: [], slug: generateUniqueSlug(slugify(title)), is_start: false, is_utility: false, group: 'side_panel' };
         state.slugToNodeId[state.nodesData[nodeId].slug] = nodeId;
     }
     if (!state.nodesData[nodeId].choices) {
@@ -83,6 +83,9 @@ export function ensureNodeData(nodeId) {
     }
     if (state.nodesData[nodeId].is_start === undefined) {
         state.nodesData[nodeId].is_start = false;
+    }
+    if (state.nodesData[nodeId].is_utility === undefined) {
+        state.nodesData[nodeId].is_utility = false;
     }
     if (state.nodesData[nodeId].group === undefined) {
         state.nodesData[nodeId].group = 'side_panel';

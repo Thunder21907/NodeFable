@@ -47,14 +47,14 @@ Everything under `frontend/editor/` is served at `/editor/...`. The `html=True` 
 
 `VariableValue = Union[bool, int, float, str, list]` (defined in `backend/schemas/project.py:5`).
 
-`NodeData` now includes a `group: str` field (default `"side_panel"`). Nodes are partitioned by group on save.
+`NodeData` now includes a `group: str` field (default `"side_panel"`) and an `is_utility: bool` field (default `False`, editor/validation-only — nodes stay in the export so `{include:}` can splice them). Nodes are partitioned by group on save.
 
 ### `ProjectSchema` (response model for `/api/load`)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `variables` | `Dict[str, VariableValue]` | The project's variable definitions |
-| `nodes` | `List[NodeData]` | All story nodes with choices, on_enter, is_start |
+| `nodes` | `List[NodeData]` | All story nodes with choices, on_enter, is_start, is_utility |
 
 See `docs/guide.md` for full schema detail of `NodeData`, `ChoiceLink`, `OnEnter`.
 

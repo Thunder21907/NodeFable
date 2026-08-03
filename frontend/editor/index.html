@@ -900,6 +900,9 @@
             border-left: 4px solid #f39c12 !important;
             background: #2a2a2a;
         }
+        .node-utility {
+            border-left: 4px solid #95a5a6 !important;
+        }
         .node-portal {
             border-style: dashed !important;
             opacity: 0.7;
@@ -1137,6 +1140,11 @@
                 <label for="passage-is-start" class="label-checkbox">
                     <input type="checkbox" id="passage-is-start" onchange="toggleStartNode(this.checked)">
                     Starting node (game begins here)
+                </label>
+
+                <label for="passage-is-utility" class="label-checkbox">
+                    <input type="checkbox" id="passage-is-utility" onchange="toggleUtilityNode(this.checked)">
+                    Utility node (Use for {include:} nodes)
                 </label>
 
                 <label for="passage-group">Group</label>

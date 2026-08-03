@@ -241,6 +241,14 @@ Finds the `.drawflow-node` DOM element by `[data-id="{nodeId}"]`. If no `.node-o
 
 Adds or removes a green "START" badge on the node's Drawflow element based on `nodesData[nodeId].is_start`.
 
+### `toggleUtilityNode(checked)`
+
+Called from the `#passage-is-utility` checkbox `onchange`. Sets `nodesData[selectedNodeId].is_utility = checked` (no exclusivity — multiple utility nodes allowed) and calls `updateUtilityBadgeOnCanvas(selectedNodeId)`.
+
+### `updateUtilityBadgeOnCanvas(nodeId)`
+
+Adds or removes a grey "utility" left border (`node-utility` class) on the node's Drawflow element based on `nodesData[nodeId].is_utility`. Called on selection (`openPassageEditor`), save (`updateCurrentNode` / `saveCurrentContent`), toggle, creation, import, and load.
+
 ### `editNode(nodeId)`
 
 Calls `openPassageEditor(parseInt(nodeId))`. Wired to overlay's Edit button.
@@ -279,8 +287,8 @@ Self-link cancels. If the target is a portal: with a specific `input_N` port it 
 2. Sets `selectedNodeId = parseInt(nodeId)` (normalized to number), calls `ensureNodeData`.
 3. If the node is a portal (`data.isPortal`), hides the passage editor and opens the group editor instead.
 4. Otherwise shows `#passage-editor`, populates title, content, slug, and error state.
-5. Shows/hides `#passage-is-start` checkbox (hidden for `side_panel`), sets its state.
-6. Calls `populateGroupDropdown()`, `renderChoices`, `renderOnEnter`, `updateStartBadgeOnCanvas`.
+5. Shows/hides `#passage-is-start` and `#passage-is-utility` checkboxes (both hidden for `side_panel`), sets their state from `data.is_start` / `data.is_utility`.
+6. Calls `populateGroupDropdown()`, `renderChoices`, `renderOnEnter`, `updateStartBadgeOnCanvas`, `updateUtilityBadgeOnCanvas`.
 
 ### `closePassageEditor()`
 
@@ -390,14 +398,6 @@ Wraps selected text with formatting markers, respecting the active editor (spell
 
 Requires `currentProjectName`. Uploads a file to `POST /api/assets/{name}/upload`, inserts `{img: <url>, alt=<name>}` at cursor, calls `refreshAssets()` (see `docs/guide.md`).
 
-### `insertAction()`
-
-Requires `selectedNodeId`. Generates a globally unique action ID (`a0`, `a1`, ...) by scanning all nodes. Creates an action with a default pair.
-
-### `deduplicateActionIds()`
-
-Fixes duplicate/empty action IDs across all nodes.
-
 ---
 
 ## Save Data
@@ -504,11 +504,11 @@ Iterates all clipboard paths, copies or moves each to `aeCurrentPath`. Clears cl
 
 ### `validateDeadEnds()`
 
-Scans all non-`side_panel` nodes. If a node has zero outgoing choices AND no `on_enter` redirect AND no text-based `{redirect:slug}` pattern, adds `node-dead-end` class (red border). Otherwise removes it.
+Scans all non-`side_panel` nodes. If a node has zero outgoing choices AND no `on_enter` redirect AND no text-based `{redirect:slug}` pattern, adds `node-dead-end` class (red border). Otherwise removes it. Utility nodes (`is_utility: true`) are exempt — same guard as `side_panel`.
 
 ### `validateOrphans()`
 
-Runs BFS from the start node across choice targets, `on_enter` targets, and text-based `{redirect:slug}` targets (parsed from all nodes' text). If no `is_start` node exists, falls back to the first non-`side_panel` slug. Nodes not visited (excluding `side_panel`) get `node-orphan` class (dashed orange border + dimmed).
+Runs BFS from the start node across choice targets, `on_enter` targets, and text-based `{redirect:slug}` targets (parsed from all nodes' text). If no `is_start` node exists, falls back to the first non-`side_panel` slug. Nodes not visited (excluding `side_panel` and utility nodes `is_utility: true`) get `node-orphan` class (dashed orange border + dimmed). The start-node fallback is unaffected by `is_utility`.
 
 ### `runValidation()`
 
@@ -658,9 +658,11 @@ Creates a fixed bottom-center toast element that auto-dismisses after 2 seconds 
 
 Each node in `nodesData` has `is_start: bool`. The `#passage-is-start` checkbox in the passage editor toggles this via `toggleStartNode()` (called from `onchange`). When checked, all other nodes are unchecked (single-start enforcement). The `side_panel` node hides the checkbox.
 
+Each node also has `is_utility: bool`. The `#passage-is-utility` checkbox toggles it via `toggleUtilityNode()` (called from `onchange`). Unlike `is_start` there is **no exclusivity** — any number of nodes may be utility. The `side_panel` node hides this checkbox too (it has its own special-casing and cannot be flagged utility). `is_utility` is a validation/editor concern only: the flag exempts the node from `validateDeadEnds()` and `validateOrphans()` (mirroring the `side_panel` guard) and adds a grey `node-utility` border on canvas, but the node **stays in the exported game** — the runtime `{include:}` splice needs its text.
+
 **Bug fix (Jul 2026):** Drawflow passes `nodeId` as a string in events. The `parseInt(nid) !== selectedNodeId` comparison in both `toggleStartNode()` and `updateCurrentNode()` therefore failed intermittently (`4 !== "4"`), causing the loop to clear the current node's own `is_start`. Fixed by normalizing `selectedNodeId = parseInt(nodeId)` in `openPassageEditor()`. Note: `selectedNodeId` can go stale when switching nodes — always read from the event argument, not `selectedNodeId`, for checks that must reference a specific node from an event context.
 
-`updateStartBadgeOnCanvas()` adds/removes a green "START" badge on the Drawflow node element.
+`updateStartBadgeOnCanvas()` adds/removes a green "START" badge on the Drawflow node element. `updateUtilityBadgeOnCanvas()` toggles the grey `node-utility` border.
 
 Serialized in `_buildSavePayload()` (used by both `confirmSave()` and `saveProjectSilent()`). Loaded in `confirmLoad()`.
 

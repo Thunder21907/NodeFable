@@ -15,7 +15,8 @@ import {
     deleteCurrentNode,
     cancelLinking,
     closePassageEditor,
-    updateStartBadgeOnCanvas
+    updateStartBadgeOnCanvas,
+    updateUtilityBadgeOnCanvas
 } from './node-editor.js';
 import {
     addGroup,
@@ -529,6 +530,7 @@ export function _buildSavePayload(name) {
             choices: choices,
             on_enter: data.on_enter || null,
             is_start: data.is_start || false,
+            is_utility: data.is_utility || false,
             group: data.group || 'side_panel'
         });
     }
@@ -555,6 +557,7 @@ export function _buildSavePayload(name) {
                 })),
                 on_enter: cn.on_enter || null,
                 is_start: cn.is_start || false,
+                is_utility: cn.is_utility || false,
                 group: cn.group || groupId
             });
         }
@@ -671,6 +674,7 @@ export async function confirmLoad() {
                 on_enter: node.on_enter || null,
                 slug: node.id,
                 is_start: node.is_start || false,
+                is_utility: node.is_utility || false,
                 group: node.group || 'side_panel'
             };
             state.slugToNodeId[node.id] = nodeId;
@@ -717,6 +721,7 @@ export async function confirmLoad() {
         ensureSidePanelNode();
         for (const nodeIdStr of Object.keys(state.nodesData)) {
             updateStartBadgeOnCanvas(parseInt(nodeIdStr));
+            updateUtilityBadgeOnCanvas(parseInt(nodeIdStr));
         }
         requestAnimationFrame(() => {
             validateDeadEnds();
@@ -883,6 +888,7 @@ export function importNode() {
             })) : [],
             on_enter: (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null,
             is_start: false,
+            is_utility: false,
             group: 'side_panel'
         };
         state.slugToNodeId['side_panel'] = nodeId;
@@ -907,6 +913,7 @@ export function importNode() {
 
     const on_enter = (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null;
     const is_start = obj.is_start === true;
+    const is_utility = obj.is_utility === true;
 
     state.nodesData[nodeId] = {
         title: obj.title,
@@ -915,6 +922,7 @@ export function importNode() {
         choices: choices,
         on_enter: on_enter,
         is_start: is_start,
+        is_utility: is_utility,
         group: obj.group || ''
     };
     state.slugToNodeId[slug] = nodeId;
@@ -927,6 +935,7 @@ export function importNode() {
         }
         updateStartBadgeOnCanvas(nodeId);
     }
+    updateUtilityBadgeOnCanvas(nodeId);
 
     closeModal();
     showToast('Imported node: ' + obj.title);

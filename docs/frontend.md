@@ -125,6 +125,8 @@ Located in `#sidebar > #inspector-panel`. Shown/hidden based on node selection.
 | Title (line 510) | `passage-title` | Text input for passage title |
 | Slug (line 513) | `passage-id` | Auto-generated from title; validated on blur via `validateSlugOnBlur()` |
 | Error display (line 514) | `passage-id-error` | Hidden `<p>` for slug validation errors |
+| Start checkbox (line 517) | `passage-is-start` | `onchange="toggleStartNode(this.checked)"` — marks the starting node (hidden for `side_panel`) |
+| Utility checkbox (line 537) | `passage-is-utility` | `onchange="toggleUtilityNode(this.checked)"` — content-only node spliced via `{include:}`, exempt from reachability warnings (hidden for `side_panel`, no exclusivity) |
 
 ### 4.2 Markdown Toolbar (lines 516–525)
 
@@ -139,7 +141,6 @@ Class `.md-toolbar`, 8 buttons:
 | 🖼 (image) | N/A | `insertImage()` | Image |
 | • (bullet) | `\n- ` / `` | `insertMarkdown('\n- ','')` | Bullet List |
 | 1. (numbered) | `\n1. ` / `` | `insertMarkdown('\n1. ','')` | Numbered List |
-| ⚡ (action) | N/A | `insertAction()` | Action (variable mutation) |
 
 ### 4.3 Choices (lines 527–530)
 
@@ -281,6 +282,12 @@ Class `.md-toolbar`, 8 buttons:
 - `.drawflow-node` in linking mode: `outline: 2px dashed #f39c12`, `cursor: crosshair`
 - Node overlays hidden in linking mode
 
+### 9.7 Node status borders
+
+- `.node-start` (line 896): green left border — starting node
+- `.node-side-panel` (line 899): orange left border + `#2a2a2a` background — side panel node
+- `.node-utility` (line 903): grey left border (`#95a5a6`) — utility node (content-only, spliced via `{include:}`, exempt from validation)
+
 ### 9.9 Drawflow Canvas (line 364)
 
 - `.drawflow .df_canvas`: transparent background (override for dark theme)
@@ -353,7 +360,7 @@ All button handlers are global functions defined in `app.js`, referenced via HTM
 | `onclick="insertImage()"` | Image button | Line 521 |
 | `onclick="insertMarkdown('\n- ','')"` | Bullet List | Line 522 |
 | `onclick="insertMarkdown('\n1. ','')"` | Numbered List | Line 523 |
-| `onclick="insertAction()"` | Action button / + Add Action | Lines 524, 536 |
+| `onchange="toggleUtilityNode(this.checked)"` | Utility node checkbox | Line 537 |
 | `onclick="updateCurrentNode()"` | Save Passage | Line 544 |
 | `onclick="deleteCurrentNode()"` | Delete Node | Line 545 |
 | `onclick="confirmSave()"` | Save modal confirm | Line 558 |

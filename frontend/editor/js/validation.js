@@ -5,7 +5,7 @@ export function validateDeadEnds() {
     for (const [nodeIdStr, data] of Object.entries(state.nodesData)) {
         const nodeEl = document.getElementById('node-' + nodeIdStr);
         if (!nodeEl) continue;
-        if (data.slug === 'side_panel') {
+        if (data.slug === 'side_panel' || data.is_utility) {
             nodeEl.classList.remove('node-dead-end');
             continue;
         }
@@ -72,7 +72,7 @@ export function validateOrphans() {
     for (const [nodeIdStr, data] of Object.entries(state.nodesData)) {
         const nodeEl = document.getElementById('node-' + nodeIdStr);
         if (!nodeEl) continue;
-        if (data.slug === 'side_panel') {
+        if (data.slug === 'side_panel' || data.is_utility) {
             nodeEl.classList.remove('node-orphan');
             continue;
         }

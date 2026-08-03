@@ -20,6 +20,7 @@ Reference for writing interactive stories in the NodeFable JSON format.
             "x": 0.0,
             "y": 0.0,
             "is_start": false,
+            "is_utility": false,
             "group": "chapter_1",
             "choices": [
                 {
@@ -217,6 +218,7 @@ Use `{include: slug}` to splice another passage's text into the current passage 
 - **Circular includes** are the author's responsibility. A safety counter stops expansion after 100 splices per render pass and shows a one-time toast (`Include limit exceeded.`).
 - **Inside `{init}`:** text mutations apply but the merged choices are dropped (init output is suppressed anyway).
 - **Reusable:** the same passage can be included in many places; each splice is independent. The classic use is a shared footer or a "welcome" preamble referenced by several passages.
+- **Utility nodes:** mark a content-only passage (one that exists purely to be spliced, never navigated into) as a *utility node* in the editor (`is_utility: true`) to exempt it from orphan/dead-end reachability warnings. This flag is editor/validation only — the passage stays in the exported game so `{include:}` can find it.
 
 ```json
 "text": "The inn is quiet tonight.\n\n{include: inn_description}\n\n{include: tavern_menu}"

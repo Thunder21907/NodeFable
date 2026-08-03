@@ -10,6 +10,7 @@ import { toggleSpellcheck, insertMarkdown } from './js/codemirror-setup.js';
 import { insertImage } from './js/asset-explorer.js';
 import {
     toggleStartNode,
+    toggleUtilityNode,
     toggleOnEnter,
     updateOnEnterField,
     saveCurrentContent
@@ -24,6 +25,7 @@ window.updateOnEnterField = updateOnEnterField;
 window.toggleSpellcheck = toggleSpellcheck;
 window.validateSlugOnBlur = validateSlugOnBlur;
 window.toggleStartNode = toggleStartNode;
+window.toggleUtilityNode = toggleUtilityNode;
 window.changeNodeGroup = changeNodeGroup;
 window.insertMarkdown = insertMarkdown;
 window.insertImage = insertImage;

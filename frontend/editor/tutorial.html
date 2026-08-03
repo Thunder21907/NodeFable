@@ -1319,6 +1319,12 @@ Enter your age: {textfield: state.age, , onEnterKey}</code></pre>
     <li><strong>Inside <code>{init}</code>:</strong> text mutations apply, but the included choices are dropped (init output is suppressed anyway).</li>
     <li><strong>Reusable:</strong> each splice is independent — the same passage can be included in many places.</li>
 </ul>
+<p>
+    <strong>Utility nodes:</strong> a passage that exists <em>only</em> to be spliced in (never navigated into) triggers
+    orphan/dead-end warnings in the editor. Mark it as a <em>Utility node</em> via the checkbox in the Passage Editor
+    (under the "Starting node" checkbox) to exempt it from those reachability warnings. The flag is editor-only —
+    utility nodes stay in the exported game so <code>{include:}</code> can still find them.
+</p>
 </section>
 
 <!-- ============================================================ -->

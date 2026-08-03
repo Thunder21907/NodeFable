@@ -288,7 +288,7 @@ export function ensureSidePanelNode() {
     }
     try {
         const nodeId = state.editor.addNode('story_node', 1, 1, 20, 20, 'story_node', {}, 'Side Panel');
-        state.nodesData[nodeId] = { title: 'Side Panel', text: '', choices: [], slug: 'side_panel', is_start: false, group: 'side_panel' };
+        state.nodesData[nodeId] = { title: 'Side Panel', text: '', choices: [], slug: 'side_panel', is_start: false, is_utility: false, group: 'side_panel' };
         state.slugToNodeId['side_panel'] = nodeId;
         const el = document.getElementById('node-' + nodeId);
         if (el) el.classList.add('node-side-panel');

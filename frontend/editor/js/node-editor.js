@@ -59,6 +59,7 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
     populateGroupDropdown();
 
     renderChoices(nid);
+    renderActions(nid);
     renderOnEnter(nid);
     updateStartBadgeOnCanvas(nid);
 }
@@ -165,6 +166,24 @@ export function updateCurrentNode() {
             choice.prerequisite = prereqInput ? prereqInput.value : '';
             choice.mutation = mutationInput ? mutationInput.value : '';
         }
+    });
+
+    const actionCards = document.querySelectorAll('#actions-list .choice-card');
+    actionCards.forEach((card, aIndex) => {
+        if (!nodeData.actions[aIndex]) return;
+        const action = nodeData.actions[aIndex];
+        action.text = card.querySelector('.action-text-input').value || '';
+
+        const pairEls = card.querySelectorAll('.pair-card');
+        const newPairs = [];
+        pairEls.forEach(el => {
+            const condition = el.querySelector('.pair-condition').value.trim();
+            const mutation = el.querySelector('.pair-mutation').value.trim();
+            if (mutation) {
+                newPairs.push(condition ? { condition, mutation } : { mutation });
+            }
+        });
+        action.pairs = newPairs.length > 0 ? newPairs : [{ mutation: '' }];
     });
 
     const nodeEl = document.getElementById('node-' + state.selectedNodeId);
@@ -327,6 +346,130 @@ export function removeChoiceLink(sourceId, targetSlug) {
     const targetId = getNodeIdBySlug(targetSlug);
     if (targetId === null) return;
     state.editor.removeSingleConnection(sourceId, targetId, 'output_1', 'input_1');
+}
+
+export function renderActions(nodeId) {
+    const container = document.getElementById('actions-list');
+    const data = state.nodesData[nodeId];
+    if (!data || !data.actions || data.actions.length === 0) {
+        container.innerHTML = '<p class="text-muted-sm">No actions defined.</p>';
+        return;
+    }
+    let html = '';
+    data.actions.forEach((action, aIndex) => {
+        const syntax = '[' + (action.text || 'action-text') + '](' + (action.id ? 'action:' + action.id : 'action:id') + ')';
+
+        const pairsHtml = (action.pairs || []).map((pair, pIndex) => `
+            <div class="pair-card" data-pair-index="${pIndex}">
+                <div class="pair-header">
+                    <label>Condition (optional)</label>
+                    <button data-action="remove-pair" class="danger" style="padding:2px 8px;font-size:0.75rem;">X</button>
+                </div>
+                <input type="text" class="pair-condition" value="${escapeHtml(pair.condition || '')}" placeholder="e.g. state.has_key == false">
+                <label>Mutation</label>
+                <input type="text" class="pair-mutation" value="${escapeHtml(pair.mutation)}" placeholder="e.g. state.has_key = true">
+            </div>
+        `).join('');
+
+        html += `
+            <div class="choice-card" data-node-id="${nodeId}" data-action-index="${aIndex}">
+                <div class="action-link-text">${escapeHtml(syntax)}</div>
+                <div class="choice-header">
+                    <input type="text" class="action-text-input" value="${escapeHtml(action.text)}" placeholder="Action link text...">
+                    <button data-action="update-action" class="success" style="font-size:0.8rem;padding:4px 10px;">Update</button>
+                    <button data-action="delete-action" class="danger" style="font-size:0.8rem;padding:4px 10px;" title="Remove action">Remove</button>
+                </div>
+                <div class="action-pairs" style="margin-top:6px;">
+                    ${pairsHtml}
+                </div>
+                <button data-action="add-pair" style="font-size:0.85rem;margin-top:4px;">+ Add pair</button>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+export function deleteAction(nodeId, index) {
+    if (!state.nodesData[nodeId] || !state.nodesData[nodeId].actions) return;
+    state.nodesData[nodeId].actions.splice(index, 1);
+    renderActions(nodeId);
+}
+
+export function addPair(nodeId, aIndex) {
+    const action = state.nodesData[nodeId]?.actions?.[aIndex];
+    if (!action) return;
+    if (!action.pairs) action.pairs = [];
+    action.pairs.push({ condition: '', mutation: '' });
+    renderActions(nodeId);
+}
+
+export function removePair(nodeId, aIndex, pIndex) {
+    const action = state.nodesData[nodeId]?.actions?.[aIndex];
+    if (!action || !action.pairs) return;
+    action.pairs.splice(pIndex, 1);
+    renderActions(nodeId);
+}
+
+export function updateAction(nodeId, aIndex) {
+    const action = state.nodesData[nodeId]?.actions?.[aIndex];
+    if (!action) return;
+
+    const card = document.querySelector('#actions-list .choice-card[data-action-index="' + aIndex + '"]');
+    if (!card) return;
+
+    action.text = card.querySelector('.action-text-input').value || '';
+
+    const pairEls = card.querySelectorAll('.pair-card');
+    const newPairs = [];
+    pairEls.forEach(el => {
+        const condition = el.querySelector('.pair-condition').value.trim();
+        const mutation = el.querySelector('.pair-mutation').value.trim();
+        if (mutation) {
+            newPairs.push(condition ? { condition, mutation } : { mutation });
+        }
+    });
+    action.pairs = newPairs.length > 0 ? newPairs : [{ mutation: '' }];
+
+    renderActions(nodeId);
+}
+
+export function insertAction() {
+    if (!state.selectedNodeId) { alert('Open a passage first.'); return; }
+    ensureNodeData(state.selectedNodeId);
+    if (!state.nodesData[state.selectedNodeId].actions) state.nodesData[state.selectedNodeId].actions = [];
+
+    const actions = state.nodesData[state.selectedNodeId].actions;
+    const allIds = new Set();
+    for (const nodeId in state.nodesData) {
+        for (const a of (state.nodesData[nodeId].actions || [])) {
+            if (a.id) allIds.add(a.id);
+        }
+    }
+    let idCounter = 0;
+    while (allIds.has('a' + idCounter)) idCounter++;
+    const id = 'a' + idCounter;
+    actions.push({ id, text: '', pairs: [{ condition: '', mutation: '' }] });
+
+    renderActions(state.selectedNodeId);
+}
+
+export function deduplicateActionIds() {
+    const seen = {};
+    for (const nodeId in state.nodesData) {
+        for (const action of (state.nodesData[nodeId].actions || [])) {
+            if (!action.id) {
+                action.id = 'a' + Object.keys(seen).length;
+            }
+            if (seen[action.id] !== undefined) {
+                const oldId = action.id;
+                let counter = 0;
+                while (seen['a' + counter] !== undefined) counter++;
+                action.id = 'a' + counter;
+                console.log('Renamed duplicate action "' + oldId + '" in node ' + nodeId + ' to "' + action.id + '"');
+            }
+            seen[action.id] = true;
+        }
+    }
 }
 
 export function renderOnEnter(nodeId) {

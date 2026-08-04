@@ -227,6 +227,7 @@
         <a href="#dialogue">Dialogue</a>
         <a href="#variables">Variables</a>
         <a href="#image-catalog">Image Catalog &amp; Asset Tree</a>
+        <a href="#audio">Audio Directives</a>
         <a href="#video">Video Player</a>
         <a href="#asset-explorer">Asset Explorer</a>
         <a href="#actions">Action Blocks</a>
@@ -737,8 +738,64 @@
 </section>
 
 <!-- ============================================================ -->
+<section id="audio">
+<h2>Audio Directives</h2>
+<p>
+    Use <code>{audio: url, options}</code> for background music and sound effects.
+    Upload audio files (mp3, wav, ogg, m4a, aac, flac) through the asset explorer,
+    then insert them with this directive in your passage content.
+</p>
+
+<h3>Syntax &amp; Options</h3>
+<pre><code>{audio: assets/bg.mp3}
+{audio: /api/assets/My%20Journey/rain.mp3, loop, volume=0.4, fade=800}
+{audio: hover.ogg, sfx}
+{audio: silence.mp3, stop}</code></pre>
+
+| Directive | Options |
+|---|---|
+| `{audio: url}` | Declare/ensure playing on default music channel (idempotent) | none — track starts or stays playing |
+| `{audio: url, music}` | Same as bare directive; explicit music channel | default `music` channel |
+| `{audio: url, sfx}` | Play on sound effects channel | explicitly selects `sfx` channel |
+| `{audio: url, stop}` | Pause track and reset to 0 (like a "fade out" without animation) | pauses + currentTime = 0 |
+| `{audio: url, pause}` | Pause track at current position (position kept for resume) | preserves currentTime |
+| `{audio: url, restart}` | Reset to 0 and play from start (idempotent on already-playing) | resets then plays |
+
+Other options:
+- `loop` — loop the track (default **false**)
+- `volume=1` — per-track volume 0–1; default is 1. Combined with channel master volume via `musicVolume`/`sfxVolume`
+- `fade=N` — fade-in duration in ms on start (0 = instant; default 0)
+
+Options use the same comma-`key=value` grammar as images/video. The target (URL) is everything before the first comma.
+Bare flags without `=` act as boolean true; `key=value` pairs require an equals sign. Spaces around `=` are fine.
+Unknown keys are ignored.
+
+<h3>Audio Lifecycle Rule</h3>
+<p>
+    After each full render (passage text + <code>{include:}</code> splices), any cached track **not declared**
+    by a play-directive in that render is stopped. Re-declaring an already-playing track is a no-op.
+    This means:
+</p>
+<ul>
+    <li>Per-passage music declares → stops when you leave
+    <li>Cross-passage BGM re-declare every passage — DRY via <code>{include:}</code> + a `music` utility node (see §Including)
+    <li>Always-on HUD music in side panel can't be stopped by a passage (side-panel tracks are always declared)
+    <li>Simply don't re-declare to silence, or use `{audio: url, stop}`
+</ul>
+
+<h3 id="video">Autoplay Caveat</h3>
+<p>
+    Browsers block audible autoplay until page interaction. The game requires "New Game" click for initial sound;
+    later declarations after navigation are always fine.
+</p>
+
+<div class="tip">
+    <strong>Tip:</strong> Use <code>{include: music_node}</code> with a utility node that re-declares your BGM
+    in every passage to avoid duplication.
+</div>
+
+<!-- ============================================================ -->
 <section id="markdown">
-<h2>Markdown Reference</h2>
 <p>
     NodeFable uses a lightweight markdown syntax for passage content.
     The formatting toolbar buttons in the right sidebar help you insert common patterns.

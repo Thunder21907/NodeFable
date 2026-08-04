@@ -237,6 +237,7 @@ Options are comma-separated `key=value` pairs (spaces around `=` are fine — `w
 |---|---|---|
 | `{img: url, w=200, h=300, alt=The map}` | `w`, `h` (px), `alt` (accessibility text) | none — natural size, `max-width:100%` |
 | `{video: url, autoplay, repeat, mute, w=480, h=270}` | `autoplay`, `repeat` (loop), `mute` (booleans); `w`, `h` | autoplay `true`, repeat `true`, mute `false` |
+| `{audio: url, music, loop, volume=0.4, fade=800}` | `music`/`sfx` channel, `loop`, `volume=1`, `fade=0`; bare flags or `key=value` | loop `false`, volume 1, fade 0; default channel is `music` |
 
 ```
 {img: assets/alex.jpeg, w=200}
@@ -246,9 +247,43 @@ Options are comma-separated `key=value` pairs (spaces around `=` are fine — `w
 {video: assets/intro.webm, autoplay=false, mute}
 ```
 
-**Video notes.** The player always shows controls and uses `preload="metadata"`. Browsers block *audible* autoplay, so with the defaults (autoplay on, unmuted) the video may wait for a click — pass `mute` for reliable ambient autoplay, or `autoplay=false` for click-to-play. Recommended formats: `video/mp4` (H.264/AAC) and `video/webm` (VP9/Opus); the browser plays the first supported one. A missing file shows an empty player.
+### Audio Directives
 
-> **Removed:** the old markdown form `![alt](url)` (and `![alt](url){img:w=..}`) is no longer recognized — it renders literally. Existing passages using it must be converted to `{img: url, ...}`.
+Use `{audio: url, options}` for background music and sound effects. `url` points to an uploaded audio file (`mp3`, `wav`, `ogg`, `m4a`, `aac`, `flac`). During export, asset URLs are rewritten from `/api/assets/GameName/file.mp3` to `assets/file.mp3`. External web URLs also work.
+
+Options use the same comma-`key=value` grammar as images/video. The target (URL) is everything before the first comma. Bare flags without `=` act as boolean true; `key=value` pairs require an equals sign. Spaces around `=` are fine. Unknown keys are ignored.
+
+| Directive | Options | Defaults |
+|---|---|---|
+| `{audio: url}` | Declare/ensure playing on default music channel (idempotent) | none — track starts or stays playing |
+| `{audio: url, music}` | Same as bare directive; explicit music channel | default `music` channel |
+| `{audio: url, sfx}` | Play on sound effects channel | explicitly selects `sfx` channel |
+| `{audio: url, stop}` | Pause track and reset to 0 (like a "fade out" without animation) | pauses + currentTime = 0 |
+| `{audio: url, pause}` | Pause track at current position (position kept for resume) | preserves currentTime |
+| `{audio: url, restart}` | Reset to 0 and play from start (idempotent on already-playing) | resets then plays |
+
+Other options:
+- `loop` — loop the track (default **false**)
+- `volume=1` — per-track volume 0–1; default is 1. Combined with channel master volume via `musicVolume`/`sfxVolume`
+- `fade=N` — fade-in duration in ms on start (0 = instant; default 0)
+
+```json
+{audio: assets/bg.mp3, loop}
+{audio: assets/hover.ogg, sfx}
+{audio: assets/silence.mp3, stop}
+```
+
+**Audio lifecycle rule:** After each full render (passage text + `{include:}` splices), any cached track **not declared** by a play-directive in that render is stopped. Re-declaring an already-playing track is a no-op. This means:
+- Per-passage music declares → stops when you leave
+- Cross-passage BGM re-declare every passage — DRY via `{include:}` + a `music` utility node (see §Including)
+- Always-on HUD music in side panel can't be stopped by a passage (side-panel tracks are always declared)
+- Simply don't re-declare to silence, or use `{audio: url, stop}`
+
+**Autoplay caveat:** Browsers block audible autoplay until page interaction. The game requires "New Game" click for initial sound; later declarations after navigation are always fine. Same as video.
+
+> **Tip:** Use `{include: music_node}` with a utility node that re-declares your BGM in every passage to avoid duplication.
+
+### Dialogue Blocks
 
 ### Dialogue Blocks
 

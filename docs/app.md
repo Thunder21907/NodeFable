@@ -123,7 +123,7 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 
 | Token | Match |
 |---|---|
-| `keyword` | `{if:}` / `{elseif:}` / `{else}` / `{endif}`, `{set:}`, `{redirect:}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{endradiogroup}`, `{radiobutton:}`, `{wait:...}{endwait}`, `{endwait}`, `{dialogue:}`, `{enddialogue}`, `{img:}`, `{video:}`, `{while:}` / `{endwhile}`, `{do}`, `{break}`, `{continue}`, `{for:}` / `{endfor}`, `{unset:}`, `{include:}`, `{init}` / `{endinit}` |
+| `keyword` | `{if:}` / `{elseif:}` / `{else}` / `{endif}`, `{set:}`, `{redirect:}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{endradiogroup}`, `{radiobutton:}`, `{wait:...}{endwait}`, `{endwait}`, `{dialogue:}`, `{enddialogue}`, `{img:}`, `{video:}`, `{audio:}`, `{while:}` / `{endwhile}`, `{do}`, `{break}`, `{continue}`, `{for:}` / `{endfor}`, `{unset:}`, `{include:}`, `{init}` / `{endinit}` |
 | `builtin` | `{random:n,m}`, `notify(`, `game.newGame(` |
 | `variable-2` | `{var:state.x}` / `{var state.x}`, bare `state.varname` / `temp.varname`, array access `state.myarray[0]` / `state.myarray[state.id]` and `.size` |
 | `atom` | `true` / `false` |
@@ -137,7 +137,7 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 - After `state.` / `temp.`: suggests matching variable names from `variables`.
 - After `{include:`: suggests matching passage slugs from `slugToNodeId`.
 - A bare `state`/`temp` / `state.`/`temp.` token: suggests `state.` and `temp.`.
-- General word completion: suggests the NodeFable keyword list (`if:`, `elseif:`, `else`, `endif`, `set:`, `redirect:`, `random:`, `textfield:`, `textarea:`, `number:`, `checkbox:`, `dropdown:`, `radiogroup`, `radiobutton:`, `endradiogroup`, `var:`, `wait:`, `endwait`, `dialogue:`, `enddialogue`, `img:`, `video:`, `while:`, `endwhile`, `do`, `break`, `continue`, `for:`, `endfor`, `unset:`, `include:`, `init`, `endinit`, `true`, `false`, `notify(`, `game.newGame()`).
+- General word completion: suggests the NodeFable keyword list (`if:`, `elseif:`, `else`, `endif`, `set:`, `redirect:`, `random:`, `textfield:`, `textarea:`, `number:`, `checkbox:`, `dropdown:`, `radiogroup`, `radiobutton:`, `endradiogroup`, `var:`, `wait:`, `endwait`, `dialogue:`, `enddialogue`, `img:`, `video:`, `audio:`, `while:`, `endwhile`, `do`, `break`, `continue`, `for:`, `endfor`, `unset:`, `include:`, `init`, `endinit`, `true`, `false`, `notify(`, `game.newGame()`).
 
 `inputRead` triggers autocomplete automatically after typing `.` or `:`. `hintOptions.completeSingle = false`.
 
@@ -897,6 +897,7 @@ Helpers (all on the runtime `Game`/engine object):
 | `_activeChoices` | The merged choice list `render()` / `renderSidePanel()` hand to `renderContent` and `navigateTo`. |
 | `_actionBlocks` | Per-render capture of raw action-block bodies, in walker encounter order (reset at the top of `render()` and in `init()`). Each rendered block pushes its body and emits `data-action-block="<index>"`. |
 | `_actionBlockLinks` | Per-render array of the anchor HTML for each rendered action block (same index as `_actionBlocks`). The walker pushes the link and emits a `\u0000nfaction_<idx>\u0000` placeholder token instead of raw HTML; `renderContent` restores the anchor **after** HTML-escaping so the tag survives. |
+| `_audio` | Persistent url-keyed cache of `HTMLAudioElement`s plus per-render bookkeeping (see §`{audio:}` directives below). Never torn down on navigation; re-created on `init()`. |
 
 ### `{action:}` blocks
 
@@ -921,6 +922,30 @@ The click delegation on `#app` matches `a[data-action-block]` (non-disabled only
 `_restoreScroll(scroller, target)` re-applies `scroller.scrollTop = target` on every animation frame until it sticks or 300 frames elapse. A single restore (even inside one `requestAnimationFrame`) is a no-op when the re-render recreates media (`{img:}`/`{video:}`) that starts at ~0 height, collapsing the content so the browser clamps `scrollTop` to 0; retrying each frame until the media loads lets the content grow back to accept the old position. Redirects deliberately skip this and scroll to top.
 
 `_actionBlocks` is reset at the top of `render()` and in `init()`. Passage blocks precede side-panel blocks within a render cycle (passage renders first, then `renderSidePanel()`), and both standalone `renderSidePanel()` calls follow a full render, so indices stay in sync with the DOM. `renderContent` no longer handles action links — the `[text](action:id)` transform was removed (those links now fall through to the plain-text fallback).
+
+### `{audio:}` directives
+
+The walker dispatches on `{audio:` (case-insensitive, matched by `/\{audio:([^}]+)\}/i`) **after** the `{set:}`/`{unset:}` branches, consumes the tag, and emits **no output** — it is a pure side-effect directive. The captured param string is handed to `this._audio.directive(params)`.
+
+`_audio` is the persistent audio registry (created fresh on `init()`):
+
+| Member | Purpose |
+|---|---|
+| `tracks` | `url -> HTMLAudioElement` cache (lazy-created, never torn down across navigation) |
+| `active` | `Set<url>` declared by the current render pass |
+| `musicVolume` / `sfxVolume` | per-channel master volumes (default `1`); future settings-button hooks |
+| `directive(params)` | Parses the url + options, dispatches verbs, or declares a play intent |
+| `ensurePlaying(url, opts)` | Cache-or-create the element, set `loop`/`volume`/`preload="metadata"`, start with optional fade; re-declaring a playing track is a no-op |
+| `pauseTrack(url)` / `stopTrack(url)` / `restartTrack(url)` | one-time verbs on a named url |
+| `stopUndeclared()` | Stops (pause + reset to 0) every cached track **not** in `active`, then clears `active` for the next render |
+| `stopAll()` | Stops and deletes all cached tracks; clears `active` |
+| `setMasterVolume(channel, v)` | Updates `musicVolume`/`sfxVolume` and re-applies volume to cached tracks on that channel |
+
+`directive(params)` splits on commas (first field = url, the track's identity), then scans the option fields: `music`/`sfx` select the channel, `loop` (bare or `=false`) sets looping, `volume=0..1` and `fade=ms` are parsed (values clamped), and a bare `stop`/`pause`/`restart` is a **one-time verb** that takes precedence for that render (it does **not** add the url to `active`). Unknown keys are ignored; spaces around `=` are fine. A play intent does `active.add(url)` then `ensurePlaying(url, {channel, loop, volume, fade})`.
+
+Play-state is tracked per track via an internal `_nfState` flag (`'stopped'` / `'playing'` / `'paused'`) set on the element — `HTMLMediaElement` has no `playState` property. `_playWithFade` ramps volume over `fade` ms with `requestAnimationFrame` and calls `track.play()` (promise rejection swallowed). Every `_audio` method guards `window.Audio` availability and corrupt urls fail silently.
+
+Lifecycle wiring: `render()` calls `renderSidePanel()` then `this._audio.stopUndeclared()` then `runWaitSequences()` — the single reconcile point where declared tracks keep playing and everything else stops. `newGame()` and `loadGame()` call `this._audio.stopAll()` before re-rendering (audio state is never saved). Side-panel `{audio:}` declarations run through `renderSidePanel()` → `processDirectives`, so HUD music is re-declared every render and a passage cannot stop it. Audio inside `{if:}` branches, loops, and `{include:}` splices works (walker-processed); like `{set:}`, it does **not** run inside `{wait:}`/`{dialogue:}` bodies (handled at `renderContent` time).
 
 ### `{init}` blocks
 

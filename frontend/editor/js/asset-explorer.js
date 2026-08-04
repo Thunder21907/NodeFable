@@ -2,16 +2,18 @@
 import { state } from './state.js';
 import { escapeHtml, showToast } from './ui-utils.js';
 import { insertAtCursor } from './codemirror-setup.js';
-import { SVG_CLOSE } from './constants.js';
+import { SVG_CLOSE } from './constants.js'; 
 
 const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov'];
+const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'];
 
 function assetSyntax(url, name) {
     const ext = (name.split('.').pop() || '').toLowerCase();
+    if (AUDIO_EXTS.includes(ext)) return '{audio: ' + url + '}';
     if (VIDEO_EXTS.includes(ext)) return '{video: ' + url + '}';
     const alt = name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
     return '{img: ' + url + (alt ? ', alt=' + alt : '') + '}';
-}
+} 
 
 export async function refreshAssets() {
     const section = document.getElementById('asset-section');
@@ -38,7 +40,7 @@ export async function refreshAssets() {
     } catch (e) {
         section.classList.add('is-hidden');
     }
-}
+} 
 
 export function renderAssetTree(nodes, container, parentPath) {
     let html = '';
@@ -71,7 +73,7 @@ export function renderAssetTree(nodes, container, parentPath) {
         }
     }
     container.innerHTML = html;
-}
+} 
 
 export function renderAssetTreeChildren(nodes, parentPath) {
     let html = '';
@@ -104,7 +106,7 @@ export function renderAssetTreeChildren(nodes, parentPath) {
         }
     }
     return html;
-}
+} 
 
 export function getEntriesAtPath(tree, path) {
     if (!path) return tree;
@@ -116,13 +118,13 @@ export function getEntriesAtPath(tree, path) {
         current = found.children || [];
     }
     return current;
-}
+} 
 
 export function renderAssetExplorer(tree) {
     const entries = getEntriesAtPath(tree, state.aeCurrentPath);
     renderBreadcrumb(state.aeCurrentPath);
     renderAEGrid(entries);
-}
+} 
 
 export function renderBreadcrumb(path) {
     const parts = path ? path.split('/') : [];
@@ -133,7 +135,7 @@ export function renderBreadcrumb(path) {
         html += '<span class="ae-crumb" data-path="' + escapeHtml(cumulative) + '">' + escapeHtml(part) + '</span>';
     }
     document.getElementById('ae-breadcrumb').innerHTML = html;
-}
+} 
 
 export function renderAEGrid(entries) {
     const grid = document.getElementById('ae-file-grid');
@@ -173,7 +175,7 @@ export function renderAEGrid(entries) {
     }
     grid.innerHTML = html;
     updateAEToolbar();
-}
+} 
 
 export function updateAEToolbar() {
     const count = state.aeSelectedPaths.size;
@@ -182,13 +184,13 @@ export function updateAEToolbar() {
     document.querySelector('#ae-toolbar [data-ae-action="copy"]').disabled = count === 0;
     document.querySelector('#ae-toolbar [data-ae-action="cut"]').disabled = count === 0;
     document.querySelector('#ae-toolbar [data-ae-action="paste"]').disabled = state.aeClipboard === null;
-}
+} 
 
 export function aeNavigate(path) {
     state.aeCurrentPath = path;
     state.aeSelectedPaths.clear();
     refreshAssets();
-}
+} 
 
 export async function aeNewFolder(targetPath) {
     const name = prompt('Folder name:');
@@ -209,7 +211,7 @@ export async function aeNewFolder(targetPath) {
     } catch (err) {
         alert('Failed to create folder: ' + err.message);
     }
-}
+} 
 
 export async function aeUpload(targetPath) {
     const input = document.createElement('input');
@@ -238,7 +240,7 @@ export async function aeUpload(targetPath) {
         refreshAssets();
     };
     input.click();
-}
+} 
 
 export async function aeDelete(singlePath) {
     const paths = singlePath ? [singlePath] : Array.from(state.aeSelectedPaths);
@@ -270,7 +272,7 @@ export async function aeDelete(singlePath) {
     showToast('Deleted ' + totalDeleted + ' item(s)' + (hadError ? ' (some failed)' : ''));
     state.aeSelectedPaths.clear();
     refreshAssets();
-}
+} 
 
 export async function aeRename() {
     if (state.aeSelectedPaths.size !== 1) return;
@@ -294,21 +296,21 @@ export async function aeRename() {
     } catch (err) {
         alert('Failed to rename: ' + err.message);
     }
-}
+} 
 
 export function aeCopy() {
     if (state.aeSelectedPaths.size === 0) return;
     state.aeClipboard = { action: 'copy', paths: Array.from(state.aeSelectedPaths) };
     updateAEToolbar();
     showToast('Copied ' + state.aeClipboard.paths.length + ' item(s)');
-}
+} 
 
 export function aeCut() {
     if (state.aeSelectedPaths.size === 0) return;
     state.aeClipboard = { action: 'cut', paths: Array.from(state.aeSelectedPaths) };
     updateAEToolbar();
     showToast('Cut ' + state.aeClipboard.paths.length + ' item(s)');
-}
+} 
 
 export async function aePaste() {
     if (!state.aeClipboard) return;
@@ -358,7 +360,7 @@ export async function aePaste() {
     }
     state.aeSelectedPaths.clear();
     refreshAssets();
-}
+} 
 
 export function insertImage() {
     if (!state.currentProjectName) {

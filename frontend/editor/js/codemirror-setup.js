@@ -1,6 +1,6 @@
 // frontend/editor/js/codemirror-setup.js
 // CodeMirror custom mode (NodeFable), autocomplete hint provider, and editor bridge utilities.
-import { state } from './state.js';
+import { state } from './state.js'; 
 
 CodeMirror.defineMode('nodefable', function (config) {
     const markdown = CodeMirror.getMode(config, 'markdown');
@@ -9,38 +9,40 @@ CodeMirror.defineMode('nodefable', function (config) {
             // {if: ...} / {elseif: ...} / {else} / {endif} / {while:} / {endwhile} / {do} / {break} / {continue} / {init} / {endinit} / {for:} / {endfor} / {unset:}
             if (stream.match(/^\{(if|elseif|else|endif|while|endwhile|do|break|continue|init|endinit|for|endfor|unset)\b[^}]*\}/i)) return 'keyword';
             // {set: ...}
-            if (stream.match(/^\{set:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{set:[^}]*\}/i)) return 'keyword';
             // {redirect: ...}
-            if (stream.match(/^\{redirect:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{redirect:[^}]*\}/i)) return 'keyword';
             // {random:...}
             if (stream.match(/^\{random:\d+(?:,\d+)?\}/i)) return 'builtin';
             // {var:state.var} / {var state.var} / array access: state.myarray[0] / state.myarray[state.id]
-            if (stream.match(/^\{var:?\s*((?:state|temp)\.\w+(?:\[[^\]]+\])?(?:\.size)?)\}/i)) return 'variable-2';
+            if (stream.match(/\{var:?\s*((?:state|temp)\.\w+(?:\[[^\]]+\])?(?:\.size)?)\}/i)) return 'variable-2';
             // {textfield:...} / {checkbox:...} / {radiogroup} / {endradiogroup} / {radiobutton:...}
-            if (stream.match(/^\{textfield:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{textfield:[^}]*\}/i)) return 'keyword';
             if (stream.match(/^\{checkbox:[^}]*\}/i)) return 'keyword';
-            if (stream.match(/^\{radiogroup\}/i)) return 'keyword';
-            if (stream.match(/^\{endradiogroup\}/i)) return 'keyword';
-            if (stream.match(/^\{radiobutton:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{radiogroup\}/i)) return 'keyword';
+            if (stream.match(/\{endradiogroup\}/i)) return 'keyword';
+            if (stream.match(/\{radiobutton:[^}]*\}/i)) return 'keyword';
             // {textarea:...} / {number:...} / {dropdown:...}
-            if (stream.match(/^\{textarea:[^}]*\}/i)) return 'keyword';
-            if (stream.match(/^\{number:[^}]*\}/i)) return 'keyword';
-            if (stream.match(/^\{dropdown:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{textarea:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{number:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{dropdown:[^}]*\}/i)) return 'keyword';
             // {include:...}
             if (stream.match(/^\{include:[^}]*\}/i)) return 'keyword';
             // {wait:...} / {endwait}
-            if (stream.match(/^\{wait:\d+(?:,\s*fade:\d+)?\}[^}]*\{endwait\}/i)) return 'keyword';
-            if (stream.match(/^\{endwait\}/i)) return 'keyword';
+            if (stream.match(/\{wait:\d+(?:,\s*fade:\d+)?\}[^}]*\{endwait\}/i)) return 'keyword';
+            if (stream.match(/\{endwait\}/i)) return 'keyword';
             // {dialogue:...} / {enddialogue}
-            if (stream.match(/^\{dialogue:[^}]*\}/i)) return 'keyword';
-            if (stream.match(/^\{enddialogue\}/i)) return 'keyword';
+            if (stream.match(/\{dialogue:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{enddialogue\}/i)) return 'keyword';
             // {img:...}
-            if (stream.match(/^\{img:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{img:[^}]*\}/i)) return 'keyword';
             // {video:...}
             if (stream.match(/^\{video:[^}]*\}/i)) return 'keyword';
+            // {audio:...}
+            if (stream.match(/\{audio:[^}]*\}/i)) return 'keyword';
             // {action:...} / {endaction}
-            if (stream.match(/^\{action:[^}]*\}/i)) return 'keyword';
-            if (stream.match(/^\{endaction\}/i)) return 'keyword';
+            if (stream.match(/\{action:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/\{endaction\}/i)) return 'keyword';
             // state.varname / temp.varname / array access: state.myarray[0] / state.myarray[state.id]
             if (stream.match(/(?:state|temp)\.\w+(?:\[[^\]]+\])?/)) return 'variable-2';
             // notify( / game.newGame(
@@ -53,18 +55,18 @@ CodeMirror.defineMode('nodefable', function (config) {
             return null;
         }
     }, true);
-});
+}); 
 
 CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
     const cursor = cm.getDoc().getCursor();
     const token = cm.getTokenAt(cursor);
     const line = cm.getLine(cursor.line);
     const lineBefore = line.slice(0, cursor.ch);
-    const lineAfter = line.slice(cursor.ch);
+    const lineAfter = line.slice(cursor.ch); 
 
     let list = [];
     let from = { line: cursor.line, ch: cursor.ch };
-    let to = { line: cursor.line, ch: cursor.ch };
+    let to = { line: cursor.line, ch: cursor.ch }; 
 
     // Detect context: inside [...](node:slug|
     const linkMatch = lineBefore.match(/\[[^\]]*\]\(((node:)?([^)]*))$/);
@@ -86,7 +88,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             list.push({ text: 'node:', displayText: 'node:' });
             return { list, from, to };
         }
-    }
+    } 
 
     // Detect context: state. inside {if ...} or assignment
     const varMatch = lineBefore.match(/(?:state\.)(\w*)$/);
@@ -100,7 +102,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             }
         }
         return { list, from, to };
-    }
+    } 
 
     // Detect context: {include: <slug-prefix> - suggest node slugs
     const includeMatch = lineBefore.match(/\{include:\s*([\w-]*)$/i);
@@ -110,7 +112,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             if (slug.startsWith(includeMatch[1])) list.push({ text: slug, displayText: slug });
         }
         return { list, from, to };
-    }
+    } 
 
     // Detect context: inside mutations - suggest state. / temp.
     if (lineBefore.match(/(?:^|\s)(state|temp)\.?$/)) {
@@ -121,7 +123,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             list.push({ text: 'temp.', displayText: 'temp.' });
             return { list, from, to };
         }
-    }
+    } 
 
     // General word completion for keywords
     const wordMatch = lineBefore.match(/(\w*)$/);
@@ -133,7 +135,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             'set:', 'redirect:', 'random:',
             'textfield:', 'textarea:', 'number:', 'checkbox:', 'dropdown:', 'radiogroup', 'radiobutton:', 'endradiogroup',
             'var:', 'wait:', 'endwait', 'dialogue:', 'enddialogue', 'img:', 'video:',
-            'action:', 'endaction', 'include:',
+            'audio:', 'action:', 'endaction', 'include:',
             'true', 'false', 'notify(', 'game.newGame()'];
         for (const kw of keywords) {
             if (kw.startsWith(prefix)) {
@@ -141,28 +143,28 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             }
         }
         return { list, from, to };
-    }
+    } 
 
     return null;
-});
+}); 
 
 // ── Editor mode helpers ──────────────────────────────────────────
 
 export function isSpellcheckActive() {
     return !document.getElementById('passage-content-native').classList.contains('is-hidden');
-}
+} 
 
 export function getEditorValue() {
     if (isSpellcheckActive()) {
         return document.getElementById('passage-content-native').value;
     }
     return state.cmEditor ? state.cmEditor.getValue() : '';
-}
+} 
 
 export function setEditorValue(val) {
     document.getElementById('passage-content-native').value = val || '';
     if (state.cmEditor) state.cmEditor.setValue(val || '');
-}
+} 
 
 export function insertAtCursor(text) {
     if (isSpellcheckActive()) {
@@ -179,7 +181,7 @@ export function insertAtCursor(text) {
         state.cmEditor.getDoc().setCursor(newPos);
         state.cmEditor.focus();
     }
-}
+} 
 
 export function insertMarkdown(before, after) {
     if (isSpellcheckActive()) {
@@ -212,7 +214,7 @@ export function insertMarkdown(before, after) {
         }
         state.cmEditor.focus();
     }
-}
+} 
 
 export function toggleSpellcheck() {
     if (!state.cmEditor) return;

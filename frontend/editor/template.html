@@ -47,10 +47,142 @@ const game = {
 
     init(data) {
         this.projectName = data.name;
+        document.title = this.projectName;
         this.state = { ...data.variables };
         this.state._visited = {};
         this._originalVars = JSON.parse(JSON.stringify(data.variables));
         this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
+        this._audio = {
+            tracks: {},
+            active: new Set(),
+            musicVolume: 1,
+            sfxVolume: 1,
+
+            ensurePlaying(url, opts) {
+                if (!window.Audio) return;
+                opts = opts || {};
+                const ch = opts.channel || 'music';
+                let track = this.tracks[url];
+                if (!track) {
+                    try {
+                        track = new Audio(url);
+                        track.preload = 'metadata';
+                    } catch (e) { return; }
+                    this.tracks[url] = track;
+                    track._nfState = 'stopped';
+                    track._nfChannel = ch;
+                    track._nfVolume = opts.volume == null ? 1 : opts.volume;
+                }
+                track.loop = !!opts.loop;
+                track._nfChannel = ch;
+                track._nfVolume = opts.volume == null ? 1 : opts.volume;
+                const baseVol = this.chVolume(ch) * (track._nfVolume || 1);
+                if (track._nfState === 'playing' && !track.paused && !track.ended) {
+                    track.volume = baseVol;
+                    return;
+                }
+                if (track._nfState === 'paused' && track.currentTime > 0) {
+                    track.volume = baseVol;
+                    this._playWithFade(track, baseVol, opts.fade || 0);
+                    return;
+                }
+                track.currentTime = 0;
+                track.volume = opts.fade > 0 ? 0 : baseVol;
+                this._playWithFade(track, baseVol, opts.fade || 0);
+            },
+
+            _playWithFade(track, targetVol, fadeMs) {
+                track._nfState = 'playing';
+                const start = performance.now();
+                const ramp = () => {
+                    const elapsed = performance.now() - start;
+                    const v = fadeMs > 0 ? Math.min(targetVol, targetVol * elapsed / fadeMs) : targetVol;
+                    track.volume = v;
+                    if (v < targetVol) requestAnimationFrame(ramp);
+                };
+                try { track.play().catch(() => {}); } catch (e) {}
+                if (fadeMs > 0) ramp(); else track.volume = targetVol;
+            },
+
+            chVolume(ch) {
+                return ch === 'sfx' ? this.sfxVolume : this.musicVolume;
+            },
+
+            pauseTrack(url) {
+                const track = this.tracks[url];
+                if (track) { track.pause(); track._nfState = 'paused'; }
+            },
+
+            stopTrack(url) {
+                const track = this.tracks[url];
+                if (track) {
+                    track.pause();
+                    track.currentTime = 0;
+                    track._nfState = 'stopped';
+                }
+            },
+
+            restartTrack(url) {
+                const track = this.tracks[url];
+                if (track) {
+                    track.currentTime = 0;
+                    track._nfState = 'stopped';
+                    this._playWithFade(track, this.chVolume(track._nfChannel || 'music') * (track._nfVolume || 1), 0);
+                }
+            },
+
+            stopUndeclared() {
+                for (const url of Object.keys(this.tracks)) {
+                    if (!this.active.has(url)) this.stopTrack(url);
+                }
+                this.active = new Set();
+            },
+
+            stopAll() {
+                for (const url of Object.keys(this.tracks)) this.stopTrack(url);
+                this.tracks = {};
+                this.active = new Set();
+            },
+
+            setMasterVolume(channel, v) {
+                if (channel === 'sfx') this.sfxVolume = v; else this.musicVolume = v;
+                for (const url of Object.keys(this.tracks)) {
+                    const track = this.tracks[url];
+                    if (track && (track._nfChannel || 'music') === channel) {
+                        track.volume = this.chVolume(channel) * (track._nfVolume || 1);
+                    }
+                }
+            },
+
+            directive(params) {
+                if (!params || !window.Audio) return;
+                const parts = params.split(',').map(s => s.trim());
+                const url = parts.shift();
+                if (!url) return;
+                let channel = 'music';
+                let loop = false;
+                let volume = 1;
+                let fade = 0;
+                let verb = null;
+                for (const p of parts) {
+                    if (!p) continue;
+                    const eqI = p.indexOf('=');
+                    const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+                    const val = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+                    if (key === 'music' || key === 'sfx') { channel = key; }
+                    else if (key === 'loop') { loop = val === '' || val.toLowerCase() !== 'false'; }
+                    else if (key === 'volume') { const v = parseFloat(val); if (!isNaN(v)) volume = Math.max(0, Math.min(1, v)); }
+                    else if (key === 'fade') { const f = parseInt(val, 10); if (!isNaN(f)) fade = Math.max(0, f); }
+                    else if (key === 'stop' || key === 'pause' || key === 'restart') { verb = key; }
+                }
+                if (verb) {
+                    this[verb + 'Track'](url);
+                    return;
+                }
+                this.active.add(url);
+                this.ensurePlaying(url, { channel: channel, loop: loop, volume: volume, fade: fade });
+            },
+        };
         this._actionBlocks = [];
         this._actionBlockLinks = [];
         this._history = [];
@@ -310,10 +442,11 @@ const game = {
                 this.state[key] = defaultVal;
             }
         }
-        if (!this.state._visited) this.state._visited = {};
-        this._history = save._history || [save.currentNodeId];
-        this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
-        this.renderSidePanel();
+		if (!this.state._visited) this.state._visited = {};
+		this._history = save._history || [save.currentNodeId];
+		this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
+		this._audio.stopAll();
+		this.renderSidePanel();
         this.currentNodeId = save.currentNodeId;
         if (this.nodes[save.currentNodeId]) {
             this.render(save.currentNodeId);
@@ -332,10 +465,11 @@ const game = {
         try {
             const keys = ['storyeditor_save', 'storyeditor_autosave'];
             for (let i = 1; i <= 5; i++) keys.push('storyeditor_save_' + i);
-            keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
-        } catch {}
-        window.location.reload();
-    },
+		keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+		} catch {}
+		this._audio.stopAll();
+		window.location.reload();
+	},
 
     showSaveLoad() {
         this.renderSaveSlots();
@@ -618,23 +752,28 @@ const game = {
                     i = block.end;
                     continue;
                 }
-            }
-            if (rest.startsWith('{if:')) {
-                const parsed = this._parseIfBranches(text, i);
-                if (parsed) {
-                    const selected = this._selectIfBranch(parsed, text);
-                    if (selected !== null) {
-                        const r = this._processDirectives(selected, inLoop);
-                        out += r.text;
-                        if (r.signal) return { text: out, signal: r.signal };
-                    }
-                    i = parsed.endIndex;
-                    continue;
-                }
-            }
-            out += text[i];
-            i++;
-        }
+			}
+			if ((m = rest.match(/^\{audio:([^}]+)\}/i))) {
+				this._audio.directive(m[1]);
+				i += m[0].length;
+				continue;
+			}
+			if (rest.startsWith('{if:')) {
+				const parsed = this._parseIfBranches(text, i);
+				if (parsed) {
+					const selected = this._selectIfBranch(parsed, text);
+					if (selected !== null) {
+						const r = this._processDirectives(selected, inLoop);
+						out += r.text;
+						if (r.signal) return { text: out, signal: r.signal };
+					}
+					i = parsed.endIndex;
+					continue;
+				}
+			}
+			out += text[i];
+			i++;
+		}
         return { text: out, signal: null };
     },
 
@@ -953,9 +1092,10 @@ const game = {
         let text = resolved.replace(/\{redirect:([^}]+)\}/g, '');
         const mergedChoices = (node.choices || []).concat(this._includedChoices);
         this._activeChoices = mergedChoices;
-        document.getElementById('passage-content').innerHTML = this.renderContent(text, mergedChoices);
-        this.renderSidePanel();
-        this.runWaitSequences();
+		document.getElementById('passage-content').innerHTML = this.renderContent(text, mergedChoices);
+		this.renderSidePanel();
+		this._audio.stopUndeclared();
+		this.runWaitSequences();
     },
 
     _parseMediaOptions(params) {

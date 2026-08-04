@@ -195,7 +195,7 @@ Class `.md-toolbar`, 8 buttons:
 - `#asset-list` — populated with `.asset-item` elements
 - Each `.asset-item` contains:
   - `.asset-preview` — 28×28 image thumbnail (`object-fit: cover`)
-  - `.asset-syntax` — monospace syntax text for copying (a `{img: url, alt=…}` directive for images, `{video: url}` for `mp4`/`webm`/`ogg`/`mov` files)
+  - `.asset-syntax` — monospace syntax text for copying (`{img: url, alt=…}` for images, `{video: url}` for video, or `{audio: url}` for audio files)
 
 ---
 

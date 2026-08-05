@@ -1,5 +1,7 @@
 # Frontend — Technical Reference
 
+> **Branching convention:** `main` is the stable, user-facing branch (default clone, release-tagged, branch-protected). `develop` is the staging branch where active feature work happens. All engine changes land on `develop` and are merged into `main` only after `node tests/run.js` passes. See `README.md → Branches & Releases`.
+
 ## Overview
 
 The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js` is the entrypoint (loaded via `<script type="module" src="app.js"></script>`); it initializes Drawflow + CodeMirror, calls the wiring functions, and exposes window-level handlers for inline HTML attributes (`onclick`/`onchange`/`onblur`). All business logic lives in `frontend/editor/js/` modules. There is no framework.

@@ -182,6 +182,17 @@ NodeFable/
   requirements.txt       -- Python dependencies
 ```
 
+## Branches & Releases
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | **Stable** — user-facing, ready-to-use. Default branch (clone/download gives you this). Updated only by tested merges from `develop`. |
+| `develop` | **Staging** — where active feature work happens. Expect breakage here. |
+
+**Workflow:** commit to `develop` → run `node tests/run.js` → when a batch is green, merge `develop` into `main` and tag it (e.g. `v0.1.0`). Tags are frozen releases you can download directly. `main` is branch-protected: direct pushes are blocked, so stable changes always flow through `develop`.
+
+**Download a stable release:** clone the repo (defaults to `main`) or grab a tag — `git fetch --tags && git checkout v0.1.0`.
+
 ## License
 
 MIT -- see [LICENSE](LICENSE) for details.

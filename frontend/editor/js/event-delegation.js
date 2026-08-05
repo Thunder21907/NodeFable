@@ -47,7 +47,7 @@ import {
     aeCut,
     aePaste
 } from './asset-explorer.js';
-import { ensureSidePanelNode } from './graph-engine.js';
+import { ensureSidePanelNode, ensureSetupNode } from './graph-engine.js';
 
 let selectedLoadName = null;
 let contextMenuTargetId = null;
@@ -288,13 +288,15 @@ export function setupVariableDelegation() {
         const item = e.target.closest('.var-item-content');
         if (item && !e.target.closest('.var-delete-btn')) {
             const varname = item.dataset.varname;
-            if (varname) editVariable(varname);
+            const scope = item.dataset.scope;
+            if (varname) editVariable(varname, scope);
             return;
         }
         const delBtn = e.target.closest('.var-delete-btn');
         if (delBtn) {
             const varname = delBtn.dataset.varname;
-            if (varname) deleteVariable(varname);
+            const scope = delBtn.dataset.scope;
+            if (varname) deleteVariable(varname, scope);
         }
     });
 }
@@ -539,6 +541,10 @@ export function _buildSavePayload(name) {
     for (const [vName, v] of Object.entries(state.variables)) {
         vars[vName] = v.value;
     }
+    const setup = {};
+    for (const [sName, v] of Object.entries(state.setupVariables)) {
+        setup[sName] = v.value;
+    }
 
     // Include collapsed group data
     for (const [groupId, cachedNodes] of Object.entries(state.collapsedGroupsData || {})) {
@@ -566,7 +572,7 @@ export function _buildSavePayload(name) {
     // Include group metadata (labels, etc.)
     const groupsPayload = (state.groupsManifest && state.groupsManifest.groups) || [];
 
-    return { name, variables: vars, nodes: nodes, groups: groupsPayload };
+    return { name, variables: vars, setup, nodes: nodes, groups: groupsPayload };
 }
 
 export async function confirmSave() {
@@ -620,6 +626,7 @@ export async function confirmLoad() {
         state.nodesData = {};
         state.slugToNodeId = {};
         state.variables = {};
+        state.setupVariables = {};
         state.groupsManifest = null;
         state.portalNodeIds = {};
         state.loadedGroupIds = new Set();
@@ -638,10 +645,21 @@ export async function confirmLoad() {
         // Restore variables from manifest
         for (const [vName, value] of Object.entries(manifest.variables || {})) {
             const type = Array.isArray(value) ? 'array'
+                : (value !== null && typeof value === 'object') ? 'dict'
                 : typeof value === 'boolean' ? 'bool'
                 : typeof value === 'number' ? (Number.isInteger(value) ? 'int' : 'float')
                 : 'string';
             state.variables[vName] = { type, value };
+        }
+
+        // Restore setup constants from manifest
+        for (const [sName, value] of Object.entries(manifest.setup || {})) {
+            const type = Array.isArray(value) ? 'array'
+                : (value !== null && typeof value === 'object') ? 'dict'
+                : typeof value === 'boolean' ? 'bool'
+                : typeof value === 'number' ? (Number.isInteger(value) ? 'int' : 'float')
+                : 'string';
+            state.setupVariables[sName] = { type, value };
         }
 
         // Load only side_panel group (full node data)
@@ -719,6 +737,7 @@ export async function confirmLoad() {
         renderVariables();
         refreshAssets();
         ensureSidePanelNode();
+        ensureSetupNode();
         for (const nodeIdStr of Object.keys(state.nodesData)) {
             updateStartBadgeOnCanvas(parseInt(nodeIdStr));
             updateUtilityBadgeOnCanvas(parseInt(nodeIdStr));

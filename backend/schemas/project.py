@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
 
-# Supported types for game variables (bool, int, float, str, list)
-VariableValue = Union[bool, int, float, str, list]
+# Supported types for game variables (bool, int, float, str, list, dict)
+VariableValue = Union[bool, int, float, str, list, dict]
 
 class ChoiceLink(BaseModel):
     target_node_id: str = Field(..., description="The ID of the node this choice leads to")
@@ -41,6 +41,7 @@ class ManifestSchema(BaseModel):
     name: str = Field(..., description="Project name")
     version: int = Field(2, description="Schema version")
     variables: Dict[str, VariableValue] = Field(default_factory=dict)
+    setup: Dict[str, VariableValue] = Field(default_factory=dict, description="Immutable boot-time constants (setup scope)")
     groups: List[GroupInfo] = Field(default_factory=list, description="List of groups")
 
 class GroupDataSchema(BaseModel):
@@ -49,4 +50,5 @@ class GroupDataSchema(BaseModel):
 
 class ProjectSchema(BaseModel):
     variables: Dict[str, VariableValue] = Field(default_factory=dict)
+    setup: Dict[str, VariableValue] = Field(default_factory=dict, description="Immutable boot-time constants (setup scope)")
     nodes: List[NodeData] = Field(default_factory=list)

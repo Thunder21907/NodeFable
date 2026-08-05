@@ -14,8 +14,8 @@ CodeMirror.defineMode('nodefable', function (config) {
             if (stream.match(/\{redirect:[^}]*\}/i)) return 'keyword';
             // {random:...}
             if (stream.match(/^\{random:\d+(?:,\d+)?\}/i)) return 'builtin';
-            // {var:state.var} / {var state.var} / array access: state.myarray[0] / state.myarray[state.id]
-            if (stream.match(/\{var:?\s*((?:state|temp)\.\w+(?:\[[^\]]+\])?(?:\.size)?)\}/i)) return 'variable-2';
+            // {var:state.var} / {var state.var} / array access / bracket-chain field access: state.clients[state.dayW].name
+            if (stream.match(/\{var:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/i)) return 'variable-2';
             // {textfield:...} / {checkbox:...} / {radiogroup} / {endradiogroup} / {radiobutton:...}
             if (stream.match(/\{textfield:[^}]*\}/i)) return 'keyword';
             if (stream.match(/^\{checkbox:[^}]*\}/i)) return 'keyword';
@@ -29,7 +29,7 @@ CodeMirror.defineMode('nodefable', function (config) {
             // {include:...}
             if (stream.match(/^\{include:[^}]*\}/i)) return 'keyword';
             // {wait:...} / {endwait}
-            if (stream.match(/\{wait:\d+(?:,\s*fade:\d+)?\}[^}]*\{endwait\}/i)) return 'keyword';
+            if (stream.match(/\{wait:\d+(?:,\s*fade:\d+)?\}/i)) return 'keyword';
             if (stream.match(/\{endwait\}/i)) return 'keyword';
             // {dialogue:...} / {enddialogue}
             if (stream.match(/\{dialogue:[^}]*\}/i)) return 'keyword';
@@ -38,13 +38,18 @@ CodeMirror.defineMode('nodefable', function (config) {
             if (stream.match(/\{img:[^}]*\}/i)) return 'keyword';
             // {video:...}
             if (stream.match(/^\{video:[^}]*\}/i)) return 'keyword';
+            // {table:} {tr:} {td:} {bar:} {endtable} {endtr} {endtd}
+            if (stream.match(/^\{(table|tr|td|bar|endtable|endtr|endtd)\b[^}]*\}/i)) return 'keyword';
             // {audio:...}
             if (stream.match(/\{audio:[^}]*\}/i)) return 'keyword';
             // {action:...} / {endaction}
             if (stream.match(/\{action:[^}]*\}/i)) return 'keyword';
             if (stream.match(/\{endaction\}/i)) return 'keyword';
-            // state.varname / temp.varname / array access: state.myarray[0] / state.myarray[state.id]
-            if (stream.match(/(?:state|temp)\.\w+(?:\[[^\]]+\])?/)) return 'variable-2';
+            // {live:...} / {endlive}
+            if (stream.match(/^\{live:[^}]*\}/i)) return 'keyword';
+            if (stream.match(/^\{endlive\}/i)) return 'keyword';
+            // state.varname / temp.varname / setup.varname / helper.method / array access / bracket-chain field access
+            if (stream.match(/(?:state|temp|setup|helper)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*/)) return 'variable-2';
             // notify( / game.newGame(
             if (stream.match(/\b(notify|game\.newGame)\s*\(/)) return 'builtin';
             // true / false
@@ -90,15 +95,27 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
         }
     } 
 
-    // Detect context: state. inside {if ...} or assignment
-    const varMatch = lineBefore.match(/(?:state\.)(\w*)$/);
+    // Detect context: state. / temp. / setup. / helper. inside {if ...} or assignment
+    const varMatch = lineBefore.match(/(?:state|temp|setup|helper)\.(\w*)$/);
     if (varMatch) {
         from.ch = cursor.ch - (varMatch[1] ? varMatch[1].length : 0);
+        const scopeWord = lineBefore.match(/(state|temp|setup|helper)\.\w*$/)[1];
         const prefix = varMatch[1] || '';
-        // When already past "state.", suggest variable names
-        for (const vName of Object.keys(state.variables)) {
-            if (vName.startsWith(prefix)) {
-                list.push({ text: vName, displayText: vName });
+        // state. -> variable names; setup. -> setup constant names;
+        // helper. -> helper methods; temp. has no editor store (runtime-only), so no names.
+        let names;
+        if (scopeWord === 'helper') {
+            names = ['random', 'either', 'clone', 'clamp'];
+        } else if (scopeWord === 'setup') {
+            names = Object.keys(state.setupVariables || {});
+        } else if (scopeWord === 'state') {
+            names = Object.keys(state.variables || {});
+        } else {
+            names = [];
+        }
+        for (const name of names) {
+            if (name.startsWith(prefix)) {
+                list.push({ text: name, displayText: name });
             }
         }
         return { list, from, to };
@@ -114,13 +131,15 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
         return { list, from, to };
     } 
 
-    // Detect context: inside mutations - suggest state. / temp.
-    if (lineBefore.match(/(?:^|\s)(state|temp)\.?$/)) {
-        const wordMatch = lineBefore.match(/(state|temp)\.?$/);
+    // Detect context: inside mutations - suggest state. / temp. / setup. / helper.
+    if (lineBefore.match(/(?:^|\s)(state|temp|setup|helper)\.?$/)) {
+        const wordMatch = lineBefore.match(/(state|temp|setup|helper)\.?$/);
         if (wordMatch) {
             from.ch = cursor.ch - wordMatch[1].length;
             list.push({ text: 'state.', displayText: 'state.' });
             list.push({ text: 'temp.', displayText: 'temp.' });
+            list.push({ text: 'setup.', displayText: 'setup.' });
+            list.push({ text: 'helper.', displayText: 'helper.' });
             return { list, from, to };
         }
     } 
@@ -135,7 +154,8 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             'set:', 'redirect:', 'random:',
             'textfield:', 'textarea:', 'number:', 'checkbox:', 'dropdown:', 'radiogroup', 'radiobutton:', 'endradiogroup',
             'var:', 'wait:', 'endwait', 'dialogue:', 'enddialogue', 'img:', 'video:',
-            'audio:', 'action:', 'endaction', 'include:',
+            'audio:', 'action:', 'endaction', 'include:', 'live:', 'endlive',
+            'table:', 'tr:', 'td:', 'bar:', 'endtable', 'endtr', 'endtd',
             'true', 'false', 'notify(', 'game.newGame()'];
         for (const kw of keywords) {
             if (kw.startsWith(prefix)) {

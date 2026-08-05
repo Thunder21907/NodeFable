@@ -25,6 +25,7 @@ MANIFEST_VERSION = 2
 class SaveRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     variables: Dict[str, VariableValue] = Field(default_factory=dict)
+    setup: Dict[str, VariableValue] = Field(default_factory=dict, description="Immutable boot-time constants (setup scope)")
     nodes: List[NodeData] = Field(default_factory=list)
     groups: Optional[List[Dict]] = Field(None, description="Group metadata with labels")
 
@@ -214,6 +215,7 @@ def _migrate_legacy_project(name: str):
         "name": safe_name(name),
         "version": MANIFEST_VERSION,
         "variables": variables,
+        "setup": {},
         "groups": groups
     }
     with open(_manifest_path(name), "w", encoding="utf-8") as f:
@@ -293,19 +295,21 @@ def _load_group_nodes(name: str, group_id: str) -> list:
     return data.get("nodes", [])
 
 
-def _load_all_nodes(name: str) -> tuple[dict, list]:
-    """Load variables and all nodes from all groups. Returns (variables, nodes)."""
+def _load_all_nodes(name: str) -> tuple[dict, dict, list]:
+    """Load setup, variables and all nodes from all groups. Returns (setup, variables, nodes)."""
     manifest = _load_manifest(name)
+    setup = manifest.get("setup", {})
     variables = manifest.get("variables", {})
     all_nodes = []
     for g in manifest.get("groups", []):
         all_nodes.extend(_load_group_nodes(name, g["id"]))
-    return variables, all_nodes
+    return setup, variables, all_nodes
 
 
-def _load_specific_groups(name: str, group_ids: list[str]) -> tuple[dict, list]:
-    """Load variables and only nodes from the requested groups."""
+def _load_specific_groups(name: str, group_ids: list[str]) -> tuple[dict, dict, list]:
+    """Load setup, variables and only nodes from the requested groups. Returns (setup, variables, nodes)."""
     manifest = _load_manifest(name)
+    setup = manifest.get("setup", {})
     variables = manifest.get("variables", {})
     all_nodes = []
     seen = set()
@@ -314,10 +318,10 @@ def _load_specific_groups(name: str, group_ids: list[str]) -> tuple[dict, list]:
             continue
         seen.add(gid)
         all_nodes.extend(_load_group_nodes(name, gid))
-    return variables, all_nodes
+    return setup, variables, all_nodes
 
 
-def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_meta: list = None):
+def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_meta: list = None, setup: dict = None):
     """Partition nodes by group, write per-group files, and save manifest."""
     safe = safe_name(name)
     _ensure_project_dirs(safe)
@@ -411,6 +415,7 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
         "name": safe,
         "version": MANIFEST_VERSION,
         "variables": variables,
+        "setup": setup or {},
         "groups": groups_list
     }
     # Drop the redundant node_to_group field if it ever lingers in memory
@@ -479,10 +484,11 @@ async def save_project(req: SaveRequest):
         _ensure_project_dirs(name)
 
         variables = req.variables
+        setup = req.setup
         nodes = [n.model_dump() for n in req.nodes]
         groups_meta = req.groups
 
-        _save_manifest_and_groups(name, variables, nodes, groups_meta)
+        _save_manifest_and_groups(name, variables, nodes, groups_meta, setup)
         return {"status": "ok", "name": name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save project: {str(e)}")
@@ -532,10 +538,10 @@ async def load_project(
     try:
         if groups:
             gids = [g.strip() for g in groups.split(",") if g.strip()]
-            variables, nodes = _load_specific_groups(name, gids)
+            setup_vars, variables, nodes = _load_specific_groups(name, gids)
         else:
-            variables, nodes = _load_all_nodes(name)
-        return ProjectSchema(variables=variables, nodes=nodes)
+            setup_vars, variables, nodes = _load_all_nodes(name)
+        return ProjectSchema(variables=variables, setup=setup_vars, nodes=nodes)
     except HTTPException:
         raise
     except Exception as e:
@@ -767,10 +773,11 @@ async def export_project(name: str):
     safe = safe_name(name)
     project_dir = _project_dir(name)
 
-    variables, nodes = _load_all_nodes(name)
+    setup, variables, nodes = _load_all_nodes(name)
     project_data = {
         "name": safe,
         "variables": variables,
+        "setup": setup,
         "nodes": [n.model_dump() if not isinstance(n, dict) else n for n in nodes]
     }
 
@@ -805,10 +812,11 @@ async def preview_project(name: str):
     safe = safe_name(name)
     project_dir = _project_dir(name)
 
-    variables, nodes = _load_all_nodes(name)
+    setup, variables, nodes = _load_all_nodes(name)
     project_data = {
         "name": safe,
         "variables": variables,
+        "setup": setup,
         "nodes": [n.model_dump() if not isinstance(n, dict) else n for n in nodes]
     }
 

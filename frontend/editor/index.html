@@ -324,6 +324,8 @@
             margin-bottom: 6px;
             font-size: 0.85rem;
         }
+        .var-item.scope-state { border-left: 3px solid #2a7a6d; }
+        .var-item.scope-setup { border-left: 3px solid #8a7536; }
         .var-item .var-name { font-weight: 600; }
         .var-item .var-type { color: #888; font-size: 0.75rem; margin-left: 6px; }
         .var-item .var-value { color: #4ec9b0; font-size: 0.85rem; }
@@ -1054,6 +1056,10 @@
         <button data-action="showVariableForm" class="btn-block">+ Add Variable</button>
 
         <div id="var-form" class="var-form is-hidden">
+            <select id="var-scope">
+                <option value="state">state</option>
+                <option value="setup">setup</option>
+            </select>
             <input type="text" id="var-name" placeholder="Variable name (e.g. player_health)">
             <select id="var-type">
                 <option value="int">int</option>
@@ -1061,6 +1067,7 @@
                 <option value="string">String</option>
                 <option value="bool">bool</option>
                 <option value="array">array</option>
+                <option value="dict">dict</option>
             </select>
             <div id="var-elem-type-wrap" class="is-hidden">
                 <select id="var-elem-type">

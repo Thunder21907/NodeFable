@@ -8,6 +8,7 @@ export const state = {
     nodesData: {},
     slugToNodeId: {},
     variables: {},
+    setupVariables: {},
     isEditingVariable: false,
     editVariableBackup: null,
     isLoading: false,

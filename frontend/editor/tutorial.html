@@ -226,6 +226,8 @@
         <a href="#markdown">Markdown Reference</a>
         <a href="#dialogue">Dialogue</a>
         <a href="#variables">Variables</a>
+        <a href="#setup-constants">Setup Constants</a>
+        <a href="#helper-functions">Helper Functions</a>
         <a href="#image-catalog">Image Catalog &amp; Asset Tree</a>
         <a href="#audio">Audio Directives</a>
         <a href="#video">Video Player</a>
@@ -251,6 +253,8 @@
         <a href="#sidepanel">Side Panel Node</a>
         <a href="#inline-mutations">Inline Mutations</a>
         <a href="#wait-sequences">Time Transitions</a>
+        <a href="#live-regions">Live Regions</a>
+        <a href="#tables-bars">Tables &amp; Stat Bars</a>
         <a href="#troubleshooting">Troubleshooting</a>
         <a href="#behaviors">Key Behaviors</a>
     </nav>
@@ -919,8 +923,9 @@ Unknown keys are ignored.
 <h3>Adding a Variable</h3>
 <ol>
     <li>Click <strong>+ Add Variable</strong> in the left panel.</li>
+    <li>Choose a <strong>scope</strong>: <code>state</code> (changes during play) or <code>setup</code> (constants, see <a href="#setup-constants" style="color:var(--accent);">Setup Constants</a>).</li>
     <li>Enter a <strong>name</strong> (e.g., <code>player_health</code>, <code>has_sword</code>).</li>
-    <li>Select a <strong>type</strong>: <code>int</code>, <code>float</code>, <code>String</code>, or <code>bool</code>.</li>
+    <li>Select a <strong>type</strong>: <code>int</code>, <code>float</code>, <code>String</code>, <code>bool</code>, <code>array</code>, or <code>dict</code>.</li>
     <li>Enter an <strong>initial value</strong> (must match the selected type).</li>
     <li>Click <strong>Add</strong>.</li>
 </ol>
@@ -966,6 +971,38 @@ You have {var:state.gold} gold pieces.</code></pre>
     Variables in curly braces are replaced with their current values at game runtime.
 </p>
 
+<h3>Object Variables (<code>dict</code>)</h3>
+<p>
+    A <code>dict</code> variable stores a plain JS object — the JSON-safe stand-in for a Map.
+    Use it for a <strong>keyed collection</strong> where each key holds an object, e.g.
+    <code>state.clients</code> keyed by day, each value <code>{name, gender, progress}</code>.
+    The object serializes to and from the project manifest as ordinary JSON (no special encoding).
+</p>
+<div class="warn">
+    <strong>Enter <code>dict</code> values as strict JSON</strong> — no trailing commas, unquoted keys, or comments:
+    <code>{"name":"Sandra","gender":1,"progress":0}</code>. The editor parses it with <code>JSON.parse</code>.
+</div>
+<p>
+    At runtime, author the collection from passage scripts with bracket assignment
+    (a plain object has <strong>no</strong> <code>.get</code>/<code>.has</code>/<code>.delete</code> methods):
+</p>
+<pre><code>{set: state.clients = {}}
+{set: state.clients[state.dayW] = {name:"Sandra", gender:1, progress:0}}
+{set: state.clients[state.dayW] = state.clients[state.dayW] || {name:"Sandra", progress:0}}   # set-if-absent
+{set: delete state.clients[state.dayW]}                                                        # delete</code></pre>
+<ul>
+    <li><strong>has:</strong> <code>{if: state.clients[state.dayW] !== undefined}</code></li>
+    <li><strong>get / display:</strong> <code>{var: state.clients[state.dayW].name}</code></li>
+    <li><strong>set:</strong> <code>{set: state.clients[state.dayW] = {name:"Sandra", progress:0}}</code></li>
+    <li><strong>delete:</strong> <code>{set: delete state.clients[state.dayW]}</code></li>
+</ul>
+<p>
+    Object literals inside <code>{set:}</code> work (the parser handles nested <code>{}</code>).
+    Displaying a <strong>whole</strong> object with <code>{var:}</code> shows the macro text unchanged rather than
+    <code>[object Object]</code> — always print a specific field (e.g. <code>.name</code>). Arrays still render joined
+    by <code>", "</code>, and <code>.size</code> still aliases to <code>.length</code> on array roots.
+</p>
+
 <h3>Variables in Prerequisites &amp; Mutations</h3>
 <p>
     Use variables to gate choices and modify state:
@@ -990,6 +1027,65 @@ You have {var:state.gold} gold pieces.</code></pre>
 <div class="tip">
     <strong>Tip:</strong> Variable names are case-sensitive. Use <code>snake_case</code> for consistency.
     Boolean variables work well for flags: <code>has_key = true</code>, <code>door_unlocked = false</code>.
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="setup-constants">
+<h2>Setup Constants</h2>
+<p>
+    <strong>Setup</strong> is a second variable scope for values that are <strong>identical on every playthrough</strong>:
+    max HP, shop prices, item definitions, global labels. Access them as <code>setup.name</code> in expressions,
+    exactly like <code>state.name</code>.
+</p>
+<p>
+    Setup values are loaded once when the game boots, then <strong>deep-frozen</strong> — at runtime they cannot be changed,
+    so every save slot shares the same constants. They are never written into save data.
+</p>
+<p>
+    Two ways to define setup values (both feed the same <code>setup</code> object):
+</p>
+<ul>
+    <li><strong>Variables panel scope:</strong> the <strong>+ Add Variable</strong> form has a <strong>scope</strong> dropdown
+        (<code>state</code> or <code>setup</code>). Pick <code>setup</code> to create a constant. In the list, setup entries
+        show a gold <strong>Setup</strong> badge and their full name (<code>setup.max_hp</code>), while state entries are green.</li>
+    <li><strong>The <code>setup</code> node:</strong> the editor auto-creates a reserved <code>setup</code> passage (in the side panel group).
+        Its <code>{set: setup.x = ...}</code> directives run once at boot before the game starts.</li>
+</ul>
+<pre><code>{set: setup.MAX_HP = 100}
+{set: setup.PRICE_POTION = 25}</code></pre>
+<div class="warn">
+    <strong>Don't mutate <code>setup.*</code> at runtime</strong> — assignments like
+    <code>{set: setup.MAX_HP = 50}</code> are ignored (with a console warning) because setup is frozen.
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="helper-functions">
+<h2>Helper Functions</h2>
+<p>
+    The read-only <code>helper</code> object provides small utilities usable inside any expression or mutation:
+</p>
+<ul>
+    <li><code>helper.random(min, max)</code> — random integer between <code>min</code> and <code>max</code>, inclusive
+        (one argument: <code>0..max</code>).</li>
+    <li><code>helper.either(a, b, c, …)</code> — picks one of its arguments at random.</li>
+    <li><code>helper.clone(value)</code> — deep copy of arrays, objects, dates, maps, sets, regexps.</li>
+    <li><code>helper.clamp(x, low, high)</code> — clamps <code>x</code> into <code>[low, high]</code>.</li>
+</ul>
+<pre><code>{set: state.gold = state.gold + helper.random(10, 25)}
+{set: state.greeting = helper.either("Hello", "Hi", "Hey")}
+{set: state.loot = helper.clone({coins: 5, name: "purse"})}</code></pre>
+<p>
+    The engine also installs string helpers on the native prototypes, so you can call them
+    directly on any state value:
+</p>
+<pre><code>{set: state.items = state.items.toShuffled()}
+{set: state.items.push(state.items.random())}
+{set: state.taken = state.items.contains("sword")}</code></pre>
+<div class="tip">
+    <strong>Note:</strong> <code>{set:}</code> accepts full expressions, including object/array literals with nested braces —
+    the parser is brace-aware and quote-aware, so <code>{set: state.o = helper.clone({a: 1})}</code> works as-is.
 </div>
 </section>
 
@@ -1146,6 +1242,9 @@ You have {var:state.gold} gold pieces.</code></pre>
     <code>{if:}</code>/<code>{elseif:}</code>/<code>{else}</code> nesting, loops, and <code>{audio:}</code>.
     It is <strong>never rendered</strong> as visible output — use a flag + <code>{if:}</code> in the surrounding
     passage to reveal content after clicking. A <code>{redirect: slug}</code> inside the body navigates on click.
+    A <code>{redirect: back}</code> inside the body is the <strong>Back-link recipe</strong> — it goes back one step in
+    history (same as the nav-back button): <code>{action: Back}{redirect: back}{endaction}</code>. <code>back</code> is
+    reserved and never matches a passage slug.
 </p>
 
 <h3>Combat Pattern</h3>
@@ -1914,6 +2013,87 @@ The dream is already fading.</code></pre>
     and longer durations (<code>{wait:3000}</code>) for slow, dramatic reveals. A fade of
     <code>300</code>–<code>500</code> works well for most cases.
 </div>
+
+<p>
+    <strong>Re-renders don't replay reveals.</strong> A wait sequence reveals <em>once per entry</em> to a passage.
+    If the passage re-renders for any reason — typing in a <code>{textfield: ..., commit=live}</code>,
+    clicking an <code>{action:}</code>, or a live-region tick — the wait content is shown in its final,
+    already-revealed state instead of replaying from <code>opacity:0</code>.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="live-regions">
+<h2>Live Regions (Time-Based Dynamics)</h2>
+<p>
+    Live regions let your game change <strong>on its own</strong>, without the player clicking anything.
+    <code>{live:N}...{endlive}</code> runs its body <strong>every N milliseconds</strong> and then
+    re-renders the whole passage — countdowns, health regen, clocks, flickering lights, and timed
+    transitions all become possible.
+</p>
+
+<h3>Countdown</h3>
+<p>
+    The <code>{if:}</code> guard stops the countdown: once <code>state.bomb</code> reaches 0 the body
+    does nothing, so the region simply stops ticking.
+</p>
+<pre><code>{live:1000}{if: state.bomb > 0}{set: state.bomb -= 1}{endif}⏱ {var:state.bomb}{endlive}</code></pre>
+
+<h3>Typewriter</h3>
+<pre><code>{live:60}{set: state.typed = (state.typed||0) + 1}{var: state.sentence.substring(0, state.typed)}{endlive}</code></pre>
+
+<h3>Timed Transition</h3>
+<pre><code>{live:1000}{if: state.bomb <= 0}{redirect: boom}{endif}{endlive}</code></pre>
+
+<h3>Behavior</h3>
+<ul>
+    <li><strong>Mutate-per-tick + full cascade.</strong> The body executes once per tick (its <code>{set:}</code>/<code>{unset:}</code> fire), then the whole passage and side panel re-render.</li>
+    <li><strong>Display-only refresh.</strong> During a render, the region's display refreshes in a side-effect-free pass, so a passage <code>{set:}</code> never re-increments a region's own counters.</li>
+    <li><strong>Side panel works too.</strong> Put a <code>{live:}</code> HUD (e.g. HP regen) in the <code>side_panel</code> node and it keeps ticking across passages.</li>
+    <li><strong>Minimum interval 50ms.</strong> Tag matching is case-insensitive; an unclosed <code>{live:</code> or <code>{live: fast}</code> renders literally.</li>
+</ul>
+
+<div class="note">
+    <strong>Tip:</strong> Every tick re-renders the whole page, so keep the passage light. Use
+    <code>{if:}</code> guards to stop regions that shouldn't run forever.
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="tables-bars">
+<h2>Tables &amp; Stat Bars</h2>
+<p>
+    Build shop, wardrobe, and stats screens with four <strong>display-only</strong> tags —
+    no mutations, no side effects. They are processed at render time and work like any other markup.
+</p>
+
+<h3>Table skeleton</h3>
+<pre><code>{table: w=600, center, border=1, cellpadding=4}
+{tr:}
+{td: w=200}Name{endtd}
+{td:}Health{endtd}
+{endtr}
+{tr:}
+{td:}Alex{endtd}
+{td:}{bar: state.hp, max=100, w=180}{endtd}
+{endtr}
+{endtable}</code></pre>
+
+<h3>Options</h3>
+<ul>
+    <li><strong><code>{table:}</code></strong> — <code>w=</code> (px), <code>center</code>, <code>border=1</code>, <code>cellpadding=</code>, <code>cellspacing=</code>, <code>class=</code>.</li>
+    <li><strong><code>{tr:}</code></strong> — <code>align=</code>, <code>class=</code>.</li>
+    <li><strong><code>{td:}</code></strong> — <code>w=</code>, <code>align=</code>, <code>valign=</code>, <code>colspan=</code>, <code>rowspan=</code>, <code>class=</code>.</li>
+    <li><strong><code>{bar: expr, max=100, w=, color=, class=}</code></strong> — fill = <code>value / max</code> clamped to 0–100%. An unset <code>state.x</code> shows an <strong>empty bar</strong>; a bad expression renders literally so you notice the mistake.</li>
+</ul>
+
+<h3>Rules</h3>
+<ul>
+    <li>Cell content is normal markup — <code>{var:}</code>, bold/italic, links, <code>{img:}</code>, <code>{dialogue:}</code>, nested <code>{bar:}</code> all work.</li>
+    <li>A <code>{bar:}</code> inside a <code>{live:}</code> region re-evaluates every tick, so stat bars stay live.</li>
+    <li>Put each tag on its own line (no blank lines inside a table) so cells join without stray <code>&lt;br&gt;</code>s.</li>
+    <li>Put <code>{table:}</code> at the start of its own paragraph — it renders as a clean block.</li>
+</ul>
 </section>
 
 <!-- ============================================================ -->

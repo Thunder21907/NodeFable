@@ -108,8 +108,8 @@
 **`#tab-markdown`** (lines 126–135):
 - Contains `<div id="passage-content-editor">` — hosts the CodeMirror 5 instance
 - CodeMirror initialized with custom `nodefable` mode (markdown + NodeFable syntax overlay), `material-darker` theme, line numbers, line wrapping, and matchbrackets
-- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{action:}`, `{endaction}`, `{include:}`, `state.varname`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` links
-- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` or `{include:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, `action:`, `endaction`, etc.)
+- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{table:}`, `{tr:}`, `{td:}`, `{bar:}`, `{endtable}`, `{endtr}`, `{endtd}`, `{action:}`, `{endaction}`, `{include:}`, `{live:}`, `{endlive}`, `state.varname` / `temp.varname` / `setup.varname` / `helper.*`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` links
+- Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` or `{include:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, `action:`, `endaction`, `live:`, `endlive`, etc.)
 - Below: `.helper-text` with link to Tutorial page
 
 ---
@@ -180,10 +180,11 @@ Class `.md-toolbar`, 8 buttons:
 
 ### 5.3 Variable List (line 479)
 
-- `#var-list` — rendered dynamically with `.var-item` elements
-- Each item shows: `.var-item-content` (clickable — name, type, value) and `.var-actions` (delete button)
-- Clicking `.var-item-content` → `editVariable(name)` — removes the variable, pre-fills the form, changes button to "Save Changes"
-- Clicking the delete button → `deleteVariable(name)` — immediate removal without form
+- `#var-list` — rendered dynamically with `.var-item` elements; both `state` and `setup` scope entries are listed together
+- Each item carries a colored **left-side border** (`.var-item.scope-state` teal / `.scope-setup` gold) and the fully-qualified name (`state.myvar` / `setup.myvar`) as `.var-item-content` (clickable — name, type, value), plus `.var-actions` (delete button)
+- The variable form (`#var-form`) has a scope `<select id="var-scope">` (options `state` / `setup`) used on add and edit
+- Clicking `.var-item-content` → `editVariable(name, scope)` — removes the variable, pre-fills the form, changes button to "Save Changes"
+- Clicking the delete button → `deleteVariable(name, scope)` — immediate removal without form
 
 ---
 
@@ -386,7 +387,7 @@ All button handlers are global functions defined in `app.js`, referenced via HTM
 | `#var-panel` (variables + assets) | 133–141, 460–489 |
 | Buttons (base styles) | 148–162 |
 | Form elements (input, textarea, select) | 169–180 |
-| Variable list items (`.var-item`) | 182–203 |
+| Variable list items (`.var-item`, `.scope-state`, `.scope-setup`) | 182–203 |
 | Asset items (`.asset-item`) | 204–245 |
 | Variable form (`.var-form`) | 247–257 |
 | Choice cards | 259–296 |
@@ -399,3 +400,16 @@ All button handlers are global functions defined in `app.js`, referenced via HTM
 | Save/load list items | 409–430 |
 | Passage editor fields | 504–547 |
 | Inline script tag (app.js) | 572 |
+
+## 13. Runtime Game Stylesheet (`template_styles.css`)
+
+The exported game (and editor preview) links `frontend/editor/template_styles.css` for the runtime engine's rendered directives (editor UI styles live in `index.html`). The table/stat-bar rules:
+
+| Selector | Purpose |
+|----------|---------|
+| `.nf-table` | `border-collapse: collapse`, 14px vertical margin, 0.95rem text — base table block |
+| `.nf-table.nf-center` | `margin: 0 auto` — centers the table (`center` param) |
+| `.nf-table.nf-bordered` / `.nf-bordered .nf-cell` | 1px `#444` cell borders (`border=1` param) |
+| `.nf-cell` | `padding: var(--nf-pad, 6px) 10px` — `cellpadding=` overrides the `--nf-pad` custom property |
+| `.nf-bar` | 14px `inline-flex` track, `#1a1a1a` bg, 1px `#444` border, 4px radius — the stat bar shell |
+| `.nf-bar-fill` | 100% height, default `#7ab8ff`, `width` transition — fill width is set inline as `width:X%` |

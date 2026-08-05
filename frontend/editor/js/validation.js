@@ -41,7 +41,8 @@ export function validateOrphans() {
         if (data.text) {
             const matches = data.text.match(/\{redirect:([^}]+)\}/g);
             if (matches) {
-                const targets = matches.map(m => m.replace('{redirect:', '').replace('}', '').trim());
+                const targets = matches.map(m => m.replace('{redirect:', '').replace('}', '').trim())
+                                        .filter(t => t !== 'back');
                 redirectEdges[data.slug] = [...new Set(targets)];
             }
         }

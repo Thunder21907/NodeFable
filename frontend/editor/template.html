@@ -43,9 +43,16 @@ const game = {
     sidePanelNodeId: null,
     _freshEntry: false,
     _inInit: false,
+    _renderOnly: false,
+    _renderOnlyWarned: new Set(),
     temp: {},
+    setup: null,
+    helper: null,
+    _bootSetup: false,
+    _helpersInstalled: false,
 
     init(data) {
+        this._installHelpers();
         this.projectName = data.name;
         document.title = this.projectName;
         this.state = { ...data.variables };
@@ -185,15 +192,34 @@ const game = {
         };
         this._actionBlocks = [];
         this._actionBlockLinks = [];
+        this._liveRegions = [];
+        this._liveTimers = [];
         this._history = [];
         this._historyIndex = -1;
+        this._varValues = [];
+        this._includeCount = 0;
+        this._includeLimitNotified = false;
+        this._includedChoices = [];
         for (const n of data.nodes) {
             this.nodes[n.id] = n;
             if (n.id === 'side_panel') this.sidePanelNodeId = n.id;
         }
 
+        // Build the immutable `setup` scope before the first render: seed from
+        // the saved setup constants, then run the reserved `setup` node (which may
+        // add/replace), then deep-freeze.
+        this._bootSetup = true;
+        this.setup = { ...(data.setup || {}) };
+        this.temp = {};
+        this._freshEntry = true;
+        const setupNode = this.nodes['setup'];
+        if (setupNode && typeof setupNode.text === 'string') this._processDirectives(setupNode.text || '', false);
+        this._freshEntry = false;
+        this._bootSetup = false;
+        this.setup = this._freezeSetup(this.setup);
+
         const nodeIds = Object.keys(this.nodes);
-        const mainNodeIds = nodeIds.filter(id => id !== 'side_panel');
+        const mainNodeIds = nodeIds.filter(id => id !== 'side_panel' && id !== 'setup');
         const explicitStart = mainNodeIds.find(id => this.nodes[id].is_start === true);
         this.startNode = explicitStart || (mainNodeIds.length > 0 ? mainNodeIds[0] : (nodeIds.length > 0 ? nodeIds[0] : null));
 
@@ -319,6 +345,7 @@ const game = {
         const before = this.snapshotState();
         const out = this._processDirectives(body, false);
         const redirect = this._checkRedirects(out.text);
+        if (redirect === 'back') { this.autoSave(); this.goBack(); return; }
         if (redirect && this.nodes[redirect]) {
             this.autoSave();
             this.render(redirect);
@@ -445,6 +472,8 @@ const game = {
 		if (!this.state._visited) this.state._visited = {};
 		this._history = save._history || [save.currentNodeId];
 		this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
+		this._liveTimers?.forEach(t => clearInterval(t));
+		this._liveTimers = [];
 		this._audio.stopAll();
 		this.renderSidePanel();
         this.currentNodeId = save.currentNodeId;
@@ -467,6 +496,8 @@ const game = {
             for (let i = 1; i <= 5; i++) keys.push('storyeditor_save_' + i);
 		keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
 		} catch {}
+		this._liveTimers?.forEach(t => clearInterval(t));
+		this._liveTimers = [];
 		this._audio.stopAll();
 		window.location.reload();
 	},
@@ -631,6 +662,49 @@ const game = {
             if (text[i] !== '{') { out += text[i]; i++; continue; }
             const rest = text.slice(i);
             let m;
+            if (this._renderOnly) {
+                const sm = rest.match(/^\{set:[^}]*\}/);
+                if (sm) { this._renderOnlyWarn('set'); i += sm[0].length; continue; }
+                const um = rest.match(/^\{unset:[^}]*\}/);
+                if (um) { this._renderOnlyWarn('unset'); i += um[0].length; continue; }
+                const rm = rest.match(/^\{redirect:[^}]*\}/);
+                if (rm) { this._renderOnlyWarn('redirect'); i += rm[0].length; continue; }
+                const am = rest.match(/^\{audio:[^}]*\}/i);
+                if (am) { this._renderOnlyWarn('audio'); i += am[0].length; continue; }
+                const im = rest.match(/^\{include:[^}]*\}/i);
+                if (im) { this._renderOnlyWarn('include'); i += im[0].length; continue; }
+                if (rest.startsWith('{action:')) {
+                    const end = text.indexOf('{endaction}', i);
+                    if (end !== -1) { this._renderOnlyWarn('action'); i = end + 11; continue; }
+                }
+                if (/^\{live:/i.test(rest)) {
+                    const lem = rest.match(/\{endlive\}/i);
+                    const end = lem ? i + lem.index : -1;
+                    if (end !== -1) { this._renderOnlyWarn('live'); i = end + 9; continue; }
+                }
+                if (rest.startsWith('{wait:')) {
+                    const end = text.indexOf('{endwait}', i);
+                    if (end !== -1) { this._renderOnlyWarn('wait'); i = end + 9; continue; }
+                }
+                if (rest.startsWith('{init}')) {
+                    const block = this._findInitEnd(text, i);
+                    if (block) { this._renderOnlyWarn('init'); i = block.end; continue; }
+                }
+                if (rest.startsWith('{for:')) {
+                    const block = this._findForEnd(text, i);
+                    if (block) { this._renderOnlyWarn('for'); i = block.end; continue; }
+                }
+                if (rest.startsWith('{while:')) {
+                    const block = this._findWhileEnd(text, i);
+                    if (block) { this._renderOnlyWarn('while'); i = block.end; continue; }
+                }
+                if (rest.startsWith('{do}')) {
+                    const block = this._findDoWhileEnd(text, i);
+                    if (block) { this._renderOnlyWarn('do'); i = block.end; continue; }
+                }
+                const fm = rest.match(/^\{((?:textfield|checkbox|radiogroup|radiobutton|textarea|number|dropdown|endradiogroup)[^}]*)\}/i);
+                if (fm) { this._renderOnlyWarn('form'); i += fm[0].length; continue; }
+            }
             if (rest.startsWith('{break}')) {
                 if (inLoop) return { text: out, signal: 'break' };
                 out += '{break}';
@@ -671,10 +745,27 @@ const game = {
                 i = closePos + 11;
                 continue;
             }
-            if ((m = rest.match(/^\{set:\s*([^}]+)\}/))) {
-                this._evalMutation(m[1].trim(), (msg) => this.notify(msg));
-                i += m[0].length;
+            if (/^\{live:/i.test(rest)) {
+                const lm = rest.match(/^\{live:\s*([^}]*)\}/i);
+                if (!lm) { out += '{live:'; i += 6; continue; }
+                const em = text.slice(i).match(/\{endlive\}/i);
+                const closePos = em ? i + em.index : -1;
+                if (closePos === -1) { out += '{live:'; i += 6; continue; }
+                const interval = parseInt(lm[1].trim(), 10);
+                if (isNaN(interval)) { out += text.slice(i, closePos + 9); i = closePos + 9; continue; }
+                const id = this._liveRegions.length;
+                this._liveRegions.push({ id, interval: Math.max(50, interval), body: text.slice(i + lm[0].length, closePos) });
+                out += '\u0000nflive_' + id + '\u0000';
+                i = closePos + 9;
                 continue;
+            }
+            if (rest.startsWith('{set:')) {
+                const sm = this._findSetEnd(text, i);
+                if (sm) {
+                    this._evalMutation(sm.expr, (msg) => this.notify(msg));
+                    i = sm.end;
+                    continue;
+                }
             }
             if ((m = rest.match(/^\{unset:\s*((?:state|temp)\.\w+|temp)\}/))) {
                 const target = m[1].trim();
@@ -706,9 +797,9 @@ const game = {
                 if (r.signal) return { text: out, signal: r.signal };
                 continue;
             }
-            if ((m = rest.match(/^\{var:?\s*((?:state|temp)\.\w+(?:\[[^\]]+\])?(?:\.size)?)\}/))) {
+            if ((m = rest.match(/^\{var:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/))) {
                 const val = this._evalValue(m[1]);
-                if (val === undefined) {
+                if (val === undefined || (val !== null && typeof val === 'object' && !Array.isArray(val))) {
                     out += m[0];
                 } else {
                     const idx = this._varValues.length;
@@ -754,6 +845,7 @@ const game = {
                 }
 			}
 			if ((m = rest.match(/^\{audio:([^}]+)\}/i))) {
+				if (this._bootSetup) { i += m[0].length; continue; }
 				this._audio.directive(m[1]);
 				i += m[0].length;
 				continue;
@@ -1009,23 +1101,144 @@ const game = {
         return null;
     },
 
+    _installHelpers() {
+        if (this._helpersInstalled) return;
+        this._helpersInstalled = true;
+
+        this.helper = Object.freeze({
+            random(min, max) {
+                if (arguments.length === 0) throw new TypeError('helper.random() requires at least 1 argument');
+                if (arguments.length === 1) { min = 0; max = Math.trunc(arguments[0]); }
+                else { min = Math.trunc(arguments[0]); max = Math.trunc(arguments[1]); }
+                if (!Number.isInteger(min) || !Number.isInteger(max)) throw new TypeError('helper.random() arguments must be numeric');
+                return min + Math.floor(Math.random() * (max - min + 1));
+            },
+            either(...values) {
+                if (values.length === 0) return undefined;
+                const flat = Array.prototype.concat.apply([], values);
+                return flat[Math.floor(Math.random() * flat.length)];
+            },
+            clone(value) {
+                if (typeof value !== 'object' || value === null) return value;
+                if (typeof value.clone === 'function') return value.clone(true);
+                const tag = Object.prototype.toString.call(value);
+                let copy;
+                if (tag === '[object Array]') copy = new Array(value.length);
+                else if (tag === '[object Date]') copy = new Date(value.getTime());
+                else if (tag === '[object Map]') {
+                    copy = new Map();
+                    value.forEach((v, k) => copy.set(this.clone(k), this.clone(v)));
+                    return copy;
+                }
+                else if (tag === '[object RegExp]') copy = new RegExp(value.source, value.flags);
+                else if (tag === '[object Set]') {
+                    copy = new Set();
+                    value.forEach(v => copy.add(this.clone(v)));
+                    return copy;
+                }
+                else {
+                    if (tag !== '[object Object]') {
+                        throw new TypeError('helper.clone() cannot clone type: ' + tag);
+                    }
+                    copy = Object.create(Object.getPrototypeOf(value));
+                }
+                Object.keys(value).forEach(k => { copy[k] = this.clone(value[k]); });
+                return copy;
+            },
+            clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+        });
+
+        const guard = name => { throw new TypeError(name + ' called on null or undefined'); };
+        const def = (proto, name, fn) => {
+            if (proto[name] === undefined) Object.defineProperty(proto, name, { value: fn, configurable: true, writable: true });
+        };
+        // Array methods…
+        def(Array.prototype, 'first', function() { if (this == null) return guard('Array.prototype.first'); if (this.length >>> 0) return this[0]; });
+        def(Array.prototype, 'last', function() { if (this == null) return guard('Array.prototype.last'); const l = this.length >>> 0; if (l) return this[l - 1]; });
+        def(Array.prototype, 'count', function(needle, pos) { if (this == null) return guard('Array.prototype.count'); pos = Number(pos) || 0; let c = 0; while ((pos = this.indexOf(needle, pos)) !== -1) { c++; pos++; } return c; });
+        def(Array.prototype, 'countWith', function(pred, thisArg) { if (this == null) return guard('Array.prototype.countWith'); if (typeof pred !== 'function') throw new Error('Array.prototype.countWith predicate must be a function'); let c = 0; for (let i = 0; i < this.length; i++) if (pred.call(thisArg, this[i], i, this)) c++; return c; });
+        def(Array.prototype, 'contains', function(v) { if (this == null) return guard('Array.prototype.contains'); return this.indexOf(v) !== -1; });
+        def(Array.prototype, 'concatUnique', function() { if (this == null) return guard('Array.prototype.concatUnique'); const result = Array.from(this); const items = Array.prototype.reduce.call(arguments, (p, c) => p.concat(c), []); for (const v of items) if (result.indexOf(v) === -1) result.push(v); return result; });
+        def(Array.prototype, 'toUnique', function() { if (this == null) return guard('Array.prototype.toUnique'); return Array.from(new Set(this)); });
+        def(Array.prototype, 'toShuffled', function() { if (this == null) return guard('Array.prototype.toShuffled'); return Array.from(this).shuffle(); });
+        def(Array.prototype, 'random', function() { if (this == null) return guard('Array.prototype.random'); const l = this.length >>> 0; if (!l) return undefined; if (arguments.length === 0) return this[Math.floor(Math.random() * l)]; const idx = Array.from(arguments).map(i => i < 0 ? Math.max(0, l + i) : i); return this[idx[Math.floor(Math.random() * idx.length)]]; });
+        def(Array.prototype, 'randomMany', function(wantSize) { if (this == null) return guard('Array.prototype.randomMany'); const l = this.length >>> 0; if (!l) return []; const want = Math.trunc(wantSize); if (!Number.isInteger(want)) throw new Error('Array.prototype.randomMany want must be an integer'); if (want < 1) return []; const n = Math.min(want, l); const picked = new Set(), result = []; while (picked.size < n) { const i = Math.floor(Math.random() * l); if (!picked.has(i)) { picked.add(i); result.push(this[i]); } } return result; });
+        def(Array.prototype, 'includesAll', function() { if (this == null) return guard('Array.prototype.includesAll'); const args = arguments.length === 1 && Array.isArray(arguments[0]) ? arguments[0] : arguments; return Array.prototype.every.call(args, v => this.includes(v)); });
+        def(Array.prototype, 'includesAny', function() { if (this == null) return guard('Array.prototype.includesAny'); const args = arguments.length === 1 && Array.isArray(arguments[0]) ? arguments[0] : arguments; return Array.prototype.some.call(args, v => this.includes(v)); });
+        def(Array.prototype, 'append', function() { if (this == null) return guard('Array.prototype.append'); const items = Array.prototype.concat.apply([], arguments); for (const v of items) this.push(v); return this; });
+        def(Array.prototype, 'prepend', function() { if (this == null) return guard('Array.prototype.prepend'); const items = Array.prototype.concat.apply([], arguments); for (let i = items.length - 1; i >= 0; i--) this.unshift(items[i]); return this; });
+        def(Array.prototype, 'delete', function() { if (this == null) return guard('Array.prototype.delete'); console.warn('[DEPRECATED] <Array>.delete() is deprecated.'); return this.deleteAll.apply(this, arguments); });
+        def(Array.prototype, 'deleteAll', function() { if (this == null) return guard('Array.prototype.deleteAll'); if (!arguments.length) return []; const needles = Array.prototype.concat.apply([], arguments); const removed = []; for (let i = this.length - 1; i >= 0; i--) { for (const needle of needles) { if (this[i] === needle || (this[i] !== this[i] && needle !== needle)) { removed.unshift(this[i]); this.splice(i, 1); break; } } } return removed; });
+        def(Array.prototype, 'deleteAt', function() { if (this == null) return guard('Array.prototype.deleteAt'); const l = this.length >>> 0; const indices = Array.from(new Set(Array.from(arguments).map(i => i < 0 ? Math.max(0, l + i) : i))).sort((a, b) => b - a); const removed = []; for (const i of indices) { if (i >= 0 && i < this.length) removed.unshift(this.splice(i, 1)[0]); } return removed; });
+        def(Array.prototype, 'deleteFirst', function() { if (this == null) return guard('Array.prototype.deleteFirst'); if (!arguments.length) return []; const needles = Array.prototype.concat.apply([], arguments), removed = []; for (let i = 0; i < this.length && needles.length; i++) for (let j = 0; j < needles.length; j++) if (this[i] === needles[j] || (this[i] !== this[i] && needles[j] !== needles[j])) { removed.push(this.splice(i--, 1)[0]); needles.splice(j--, 1); break; } return removed; });
+        def(Array.prototype, 'deleteLast', function() { if (this == null) return guard('Array.prototype.deleteLast'); if (!arguments.length) return []; const needles = Array.prototype.concat.apply([], arguments), removed = []; for (let i = this.length - 1; i >= 0 && needles.length; i--) for (let j = 0; j < needles.length; j++) if (this[i] === needles[j] || (this[i] !== this[i] && needles[j] !== needles[j])) { removed.push(this.splice(i, 1)[0]); needles.splice(j--, 1); break; } return removed; });
+        def(Array.prototype, 'deleteWith', function(pred, thisArg) { if (this == null) return guard('Array.prototype.deleteWith'); if (typeof pred !== 'function') throw new Error('Array.prototype.deleteWith predicate must be a function'); const removed = []; for (let i = this.length - 1; i >= 0; i--) if (pred.call(thisArg, this[i], i, this)) removed.unshift(this.splice(i, 1)[0]); return removed; });
+        def(Array.prototype, 'pluck', function() { if (this == null) return guard('Array.prototype.pluck'); const l = this.length >>> 0; if (!l) return undefined; let index; if (arguments.length === 0) index = Math.floor(Math.random() * l); else { const candidates = Array.from(arguments).map(i => i < 0 ? Math.max(0, l + i) : i); index = candidates[Math.floor(Math.random() * candidates.length)]; } return this.splice(index, 1)[0]; });
+        def(Array.prototype, 'pluckMany', function(wantSize) { if (this == null) return guard('Array.prototype.pluckMany'); const l = this.length >>> 0; if (!l) return []; const want = Math.trunc(wantSize); if (!Number.isInteger(want)) throw new Error('Array.prototype.pluckMany want must be an integer'); if (want < 1) return []; const n = Math.min(want, l), picked = new Set(), result = []; while (picked.size < n) picked.add(Math.floor(Math.random() * l)); const indices = Array.from(picked).sort((a, b) => b - a); for (const i of indices) result.push(this.splice(i, 1)[0]); return result; });
+        def(Array.prototype, 'pushUnique', function() { if (this == null) return guard('Array.prototype.pushUnique'); for (const v of arguments) if (this.indexOf(v) === -1) this.push(v); return this.length; });
+        def(Array.prototype, 'unshiftUnique', function() { if (this == null) return guard('Array.prototype.unshiftUnique'); const add = Array.from(arguments); for (let i = add.length - 1; i >= 0; i--) if (this.indexOf(add[i]) === -1) this.unshift(add[i]); return this.length; });
+        def(Array.prototype, 'shuffle', function() { if (this == null) return guard('Array.prototype.shuffle'); for (let i = this.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); if (i !== j) { const tmp = this[i]; this[i] = this[j]; this[j] = tmp; } } return this; });
+        // String methods…
+        def(String.prototype, 'toUpperFirst', function() { if (this == null) return guard('String.prototype.toUpperFirst'); const s = String(this); return s.length ? s[0].toUpperCase() + s.slice(1) : s; });
+        def(String.prototype, 'toLocaleUpperFirst', function() { if (this == null) return guard('String.prototype.toLocaleUpperFirst'); const s = String(this); return s.length ? s[0].toLocaleUpperCase() + s.slice(1) : s; });
+        def(String.prototype, 'first', function() { if (this == null) return guard('String.prototype.first'); const s = String(this); return s.length ? s[0] : undefined; });
+        def(String.prototype, 'last', function() { if (this == null) return guard('String.prototype.last'); const s = String(this); return s.length ? s[s.length - 1] : undefined; });
+        def(String.prototype, 'count', function(needle, pos) { if (this == null) return guard('String.prototype.count'); needle = String(needle || ''); if (needle === '') return 0; pos = Number(pos) || 0; let c = 0; while ((pos = this.indexOf(needle, pos)) !== -1) { c++; pos += needle.length; } return c; });
+        def(String.prototype, 'contains', function(needle, pos) { if (this == null) return guard('String.prototype.contains'); return this.indexOf(String(needle), Number(pos) || 0) !== -1; });
+        def(String.prototype, 'splice', function(startAt, delCount, replacement) { if (this == null) return guard('String.prototype.splice'); const s = String(this); let start = Number(startAt); if (Number.isSafeInteger(start)) { if (start < 0) { start += s.length; if (start < 0) start = 0; } } else start = 0; if (start > s.length) start = s.length; const count = Number(delCount); const cnt = (Number.isSafeInteger(count) && count >= 0) ? count : 0; let res = s.slice(0, start); if (replacement !== undefined) res += replacement; if (start + cnt < s.length) res += s.slice(start + cnt); return res; });
+        def(String.prototype, 'splitOrEmpty', function() { if (this == null) return guard('String.prototype.splitOrEmpty'); return String(this) === '' ? [] : String.prototype.split.apply(this, arguments); });
+    },
+
+    _freezeSetup(obj) {
+        for (const v of Object.values(obj)) {
+            if (v && typeof v === 'object') this._freezeSetup(v);
+        }
+        Object.freeze(obj);
+        return new Proxy(obj, {
+            set() { throw new TypeError('setup is read-only after game start'); },
+            deleteProperty() { throw new TypeError('setup is read-only after game start'); },
+            defineProperty() { throw new TypeError('setup is read-only after game start'); },
+            setPrototypeOf() { throw new TypeError('setup is read-only after game start'); }
+        });
+    },
+
+    _findSetEnd(text, i) {
+        let j = i + 5;
+        let depth = 0, quote = null;
+        for (; j < text.length; j++) {
+            const ch = text[j];
+            if (quote) {
+                if (ch === '\\') { j++; continue; }
+                if (ch === quote) quote = null;
+                continue;
+            }
+            if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+            if (ch === '{') depth++;
+            else if (ch === '}') {
+                if (depth === 0) return { expr: text.slice(i + 5, j).trim(), end: j + 1 };
+                depth--;
+            }
+        }
+        return null;
+    },
+
     _norm(expr) {
-        return (expr || '').replace(/((?:state|temp)\.\w+)\.size\b/g, '$1.length');
+        return (expr || '').replace(/((?:state|temp|setup)\.\w+)\.size\b/g, '$1.length');
     },
 
     _evalBool(expr) {
         try {
-            return !!new Function('state', 'temp', 'try { return ' + this._norm(expr) + '; } catch(e) { return false; }')(this.state, this.temp);
+            return !!new Function('state', 'setup', 'helper', 'temp', 'try { return ' + this._norm(expr) + '; } catch(e) { return false; }')(this.state, this.setup, this.helper, this.temp);
         } catch { return false; }
     },
 
     _evalMutation(expr, notify) {
-        try { new Function('state', 'notify', 'temp', this._norm(expr))(this.state, notify, this.temp); }
+        try { new Function('state', 'setup', 'helper', 'notify', 'temp', this._norm(expr))(this.state, this.setup, this.helper, notify, this.temp); }
         catch (e) { console.warn('Mutation failed:', e); }
     },
 
     _evalValue(expr) {
-        try { return new Function('state', 'temp', 'return ' + this._norm(expr))(this.state, this.temp); }
+        try { return new Function('state', 'setup', 'helper', 'temp', 'return ' + this._norm(expr))(this.state, this.setup, this.helper, this.temp); }
         catch { return undefined; }
     },
 
@@ -1058,10 +1271,13 @@ const game = {
         this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
         this._actionBlocks = [];
         this._actionBlockLinks = [];
+        this._liveRegions = [];
         const node = this.nodes[nodeId];
         if (!node) return;
         this._waitTimeouts?.forEach(t => clearTimeout(t));
         this._waitTimeouts = [];
+        this._liveTimers?.forEach(t => clearInterval(t));
+        this._liveTimers = [];
         this._tailElements = null;
 
         this._freshEntry = nodeId !== this.currentNodeId || this.currentNodeId == null;
@@ -1069,6 +1285,7 @@ const game = {
         const resolved = this.processDirectives(node.text || '');
         const redirectSlug = this._checkRedirects(resolved);
         if (redirectSlug) {
+            if (redirectSlug === 'back') { this.goBack(); return; }
             this.render(redirectSlug);
             return;
         }
@@ -1096,6 +1313,7 @@ const game = {
 		this.renderSidePanel();
 		this._audio.stopUndeclared();
 		this.runWaitSequences();
+		this.refreshLiveRegions();
     },
 
     _parseMediaOptions(params) {
@@ -1114,6 +1332,45 @@ const game = {
             else if (key === 'autoplay') out.autoplay = rawVal === '' || rawVal.toLowerCase() !== 'false';
             else if (key === 'repeat') out.repeat = rawVal === '' || rawVal.toLowerCase() !== 'false';
             else if (key === 'mute') out.mute = rawVal === '' || rawVal.toLowerCase() !== 'false';
+        });
+        return out;
+    },
+
+    _parseTableOptions(params, kind) {
+        const out = { w: '', align: '', valign: '', colspan: '', rowspan: '', center: false, border: false,
+                      cellpadding: '', cellspacing: '', cls: '' };
+        params.split(',').forEach(p => {
+            p = p.trim();
+            if (!p) return;
+            const eqI = p.indexOf('=');
+            const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+            const rawVal = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+            if (key === 'w' && /^\d+$/.test(rawVal)) out.w = parseInt(rawVal, 10);
+            else if (key === 'align' && rawVal) out.align = rawVal;
+            else if (key === 'valign' && rawVal) out.valign = rawVal;
+            else if (key === 'colspan' && /^\d+$/.test(rawVal)) out.colspan = parseInt(rawVal, 10);
+            else if (key === 'rowspan' && /^\d+$/.test(rawVal)) out.rowspan = parseInt(rawVal, 10);
+            else if (key === 'center' && kind === 'table') out.center = true;
+            else if (key === 'border' && kind === 'table') out.border = true;
+            else if (key === 'cellpadding' && /^\d+$/.test(rawVal) && kind === 'table') out.cellpadding = parseInt(rawVal, 10);
+            else if (key === 'cellspacing' && /^\d+$/.test(rawVal) && kind === 'table') out.cellspacing = parseInt(rawVal, 10);
+            else if (key === 'class' && rawVal) out.cls = rawVal.replace(/"/g, '');
+        });
+        return out;
+    },
+
+    _parseBarOptions(params) {
+        const out = { expr: null, max: 100, w: '', color: '', cls: '' };
+        const parts = params.split(',');
+        out.expr = (parts.shift() || '').trim() || null;
+        parts.forEach(p => {
+            const eqI = p.indexOf('=');
+            const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+            const rawVal = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+            if (key === 'max' && rawVal !== '' && !isNaN(Number(rawVal))) out.max = Number(rawVal);
+            else if (key === 'w' && /^\d+$/.test(rawVal)) out.w = parseInt(rawVal, 10);
+            else if (key === 'color' && rawVal) out.color = rawVal;
+            else if (key === 'class' && rawVal) out.cls = rawVal.replace(/"/g, '');
         });
         return out;
     },
@@ -1247,12 +1504,57 @@ const game = {
             const choice = choices[choiceIdx];
             let disabled = false;
             if (choice && choice.prerequisite) {
-                try {
-                    disabled = !new Function('state', 'temp', 'try { return ' + this._norm(choice.prerequisite) + '; } catch(e) { return false; }')(this.state, this.temp);
-                } catch { disabled = true; }
+                disabled = !this._evalBool(choice.prerequisite);
             }
             const cls = disabled ? ' class="disabled"' : '';
             return '<a href="#" data-node="' + slug + '" data-choice-index="' + choiceIdx + '"' + cls + '>' + text + '</a>';
+        });
+
+        // === Tables & Stat Bars ===
+        html = html.replace(/\n?\{table:([^}]*)\}/g, (m, params) => {
+            const o = this._parseTableOptions(params, 'table');
+            let style = '';
+            if (o.w) style += 'width:' + o.w + 'px;';
+            if (o.cellspacing) style += 'border-spacing:' + o.cellspacing + 'px;';
+            if (o.cellpadding) style += '--nf-pad:' + o.cellpadding + 'px;';
+            const cls = ['nf-table', o.center && 'nf-center', o.border && 'nf-bordered', o.cls].filter(Boolean).join(' ');
+            return '<table class="' + cls + '"' + (style ? ' style="' + style.trim() + '"' : '') + '>';
+        });
+        html = html.replace(/\{endtable\}\n?/g, '</table>');
+        html = html.replace(/\n?\{tr:([^}]*)\}/g, (m, params) => {
+            const o = this._parseTableOptions(params, 'tr');
+            const cls = o.cls ? ' class="' + o.cls + '"' : '';
+            return '<tr' + (o.align ? ' style="text-align:' + o.align + '"' : '') + cls + '>';
+        });
+        html = html.replace(/\{endtr\}\n?/g, '</tr>');
+        html = html.replace(/\n?\{td:([^}]*)\}/g, (m, params) => {
+            const o = this._parseTableOptions(params, 'td');
+            const cls = ['nf-cell', o.cls].filter(Boolean).join(' ');
+            let style = '';
+            if (o.w) style += 'width:' + o.w + 'px;';
+            if (o.align) style += 'text-align:' + o.align + ';';
+            if (o.valign) style += 'vertical-align:' + o.valign + ';';
+            return '<td class="' + cls + '"'
+                + (o.colspan ? ' colspan="' + o.colspan + '"' : '')
+                + (o.rowspan ? ' rowspan="' + o.rowspan + '"' : '')
+                + (style ? ' style="' + style.trim() + '"' : '') + '>';
+        });
+        html = html.replace(/\{endtd\}\n?/g, '</td>');
+        html = html.replace(/\{bar:([^}]+)\}/g, (m, params) => {
+            const o = this._parseBarOptions(params);
+            if (o.expr === null) return m;
+            let value;
+            try { value = new Function('state', 'setup', 'helper', 'temp', 'return ' + this._norm(o.expr))(this.state, this.setup, this.helper, this.temp); }
+            catch { return m; }
+            if (value === undefined || value === null) value = 0;
+            else { value = Number(value); if (!isFinite(value)) return m; }
+            const max = Number(o.max);
+            const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+            let style = 'width:' + pct + '%';
+            if (o.color) style += ';background:' + o.color;
+            const cls = ['nf-bar', o.cls].filter(Boolean).join(' ');
+            const outerStyle = o.w ? ' style="width:' + o.w + 'px"' : '';
+            return '<div class="' + cls + '"' + outerStyle + '><div class="nf-bar-fill" style="' + style + '"></div></div>';
         });
 
         html = html.replace(/\[([^\]]*)\]\([^)]+\)/g, '$1');
@@ -1267,8 +1569,9 @@ const game = {
             .replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
         html = html.replace(/\{wait:(\d+)(?:,\s*fade:(\d+))?\}([\s\S]*?)\{endwait\}/g, (match, duration, fade, inner) => {
-            fade = fade || 500;
             const content = inner.trim().replace(/\n/g, '<br>');
+            if (!this._freshEntry) return content;
+            fade = fade || 500;
             return '<div class="wait-sequence" data-duration="' + duration + '" data-fade="' + fade + '" style="opacity:0;transition:opacity ' + fade + 'ms ease">' + content + '</div>';
         });
         html = html
@@ -1311,12 +1614,18 @@ const game = {
             const link = (this._actionBlockLinks || [])[parseInt(n, 10)];
             return link === undefined ? '' : link;
         });
+        html = html.replace(/\u0000nflive_(\d+)\u0000/g, (_, n) => {
+            return '<div class="nf-live" data-live-region="' + n + '"></div>';
+        });
             return '<p>' + html + '</p>';
     },
 
     _checkRedirects(text) {
         const m = text.match(/\{redirect:([^}]+)\}/);
-        if (m && this.nodes[m[1].trim()]) return m[1].trim();
+        if (!m) return null;
+        const target = m[1].trim();
+        if (target === 'back') return 'back';
+        if (this.nodes[target]) return target;
         return null;
     },
 
@@ -1366,6 +1675,40 @@ const game = {
             }, lastFade + 50);
         }, totalDelay);
         this._waitTimeouts.push(tailT);
+    },
+
+    _renderOnlyWarn(kind) {
+        if (!this._renderOnlyWarned.has(kind)) {
+            this._renderOnlyWarned.add(kind);
+            console.warn('[NodeFable] render-only pass skipped {' + kind + '}');
+        }
+    },
+
+    renderLiveRegion(region) {
+        const el = document.querySelector('[data-live-region="' + region.id + '"]');
+        if (!el) return;
+        this._varValues = [];
+        this._renderOnly = true;
+        let html;
+        try { html = this._processDirectives(region.body, false).text; }
+        finally { this._renderOnly = false; }
+        el.innerHTML = this.renderContent(html, [], []);
+    },
+
+    refreshLiveRegions() {
+        for (const region of this._liveRegions) {
+            this.renderLiveRegion(region);
+            if (region.interval) this._liveTimers.push(setInterval(() => this.tickRegion(region), region.interval));
+        }
+    },
+
+    tickRegion(region) {
+        if (document.hidden) return;
+        const out = this._processDirectives(region.body, false);
+        const redirect = this._checkRedirects(out.text);
+        if (redirect === 'back') { this.goBack(); return; }
+        if (redirect && this.nodes[redirect]) { this.render(redirect); return; }
+        if (this.currentNodeId) this._reRender();
     }
 };
 

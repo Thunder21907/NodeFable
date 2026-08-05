@@ -297,3 +297,15 @@ export function ensureSidePanelNode() {
         console.error('Failed to create Side Panel node:', err);
     }
 }
+
+export function ensureSetupNode() {
+    if (state.slugToNodeId['setup'] !== undefined) return;
+    try {
+        const nodeId = state.editor.addNode('story_node', 1, 1, 360, 20, 'story_node', {}, 'Setup');
+        state.nodesData[nodeId] = { title: 'Setup', text: '', choices: [], slug: 'setup', is_start: false, is_utility: true, group: 'side_panel' };
+        state.slugToNodeId['setup'] = nodeId;
+        console.log('Auto-created Setup node:', nodeId);
+    } catch (err) {
+        console.error('Failed to create Setup node:', err);
+    }
+}

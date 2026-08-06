@@ -2,6 +2,8 @@
 
 > **Branching convention:** `main` is the stable, user-facing branch (default clone, release-tagged, branch-protected). `develop` is the staging branch where active feature work happens. All engine changes land on `develop` and are merged into `main` only after `node tests/run.js` passes. See `README.md → Branches & Releases`.
 
+> **Twine converter:** a separate stdlib-only Python tool (`converter/`, standalone from the editor) converts Twine/SugarCube HTML exports into NodeFable projects. Step 1 (identify passages / `setup.*` constants / `$*` variables) is implemented with unit tests under `converter/tests/`. See `README.md → Twine / SugarCube Converter`. It does not touch the frontend runtime.
+
 ## Overview
 
 The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js` is the entrypoint (loaded via `<script type="module" src="app.js"></script>`); it initializes Drawflow + CodeMirror, calls the wiring functions, and exposes window-level handlers for inline HTML attributes (`onclick`/`onchange`/`onblur`). All business logic lives in `frontend/editor/js/` modules. There is no framework.

@@ -176,10 +176,31 @@ NodeFable/
       tutorial.html      -- In-editor tutorial
       Assets/
         Screenshots/     -- Project screenshots
+  converter/             -- Twine/SugarCube -> NodeFable converter (stdlib only)
   docs/                  -- Technical documentation
   features/              -- Feature implementation plans (local, not committed)
   run_dev.sh             -- Development server launcher
   requirements.txt       -- Python dependencies
+```
+
+## Twine / SugarCube Converter
+
+A standalone, stdlib-only Python tool that converts a Twine/SugarCube HTML export into a NodeFable project. It runs independently of the editor and backend — no extra dependencies.
+
+```bash
+python3 -m converter path/to/story.html --out path/to/registry.json
+```
+
+Conversion happens in steps so each stage is reviewable:
+
+1. **Identify** — parse the story: passages (classified into content/widget/special), start node, format/IFID, global `setup.*` constants and `$*` variables, including static evaluation of simple JS expressions (literals, arrays, objects, `new Map(...)`, `Math.*`, string concatenation with `$var` references). Unresolvable expressions are flagged, not guessed.
+2. **Translate** — (planned) map SugarCube macros/links to NodeFable syntax (`$x` → `state.x`, `[[go]]` → `[go](node:slug)`, ...).
+3. **Group** — (planned) split passages into NodeFable groups and emit `manifest.json` + `groups/*.json`.
+
+Tests (synthetic SugarCube fixture):
+
+```bash
+python3 -m unittest discover converter/tests
 ```
 
 ## Branches & Releases

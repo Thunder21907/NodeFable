@@ -32,10 +32,10 @@ Author and mutate a keyed collection from passage scripts with bracket assignmen
 - set: `{set: state.clients[state.dayW] = {name:"Sandra", progress:0}}`
 - set-if-absent (idempotent update): `{set: state.clients[state.dayW] = state.clients[state.dayW] || {name:"Sandra", progress:0}}`
 - has: `{if: state.clients[state.dayW] !== undefined}`
-- get / display: `{var: state.clients[state.dayW].name}`
+- get / display: `{print: state.clients[state.dayW].name}`
 - delete: `{set: delete state.clients[state.dayW]}`
 
-Object literals inside `{set:}` are fine (the brace-aware parser handles nested `{}`). Displaying a **whole** object with `{var:}` emits the macro text unchanged rather than `[object Object]` — render a specific field instead.
+Object literals inside `{set:}` are fine (the brace-aware parser handles nested `{}`). Displaying a **whole** object with `{print:}` emits the macro text unchanged rather than `[object Object]` — render a specific field instead.
 
 ### Setup Constants (spec 33)
 
@@ -51,6 +51,30 @@ Constants shared by every playthrough go in the **Setup** scope (the Variables p
 - `helper.clamp(x, low, high)` — clamps `x` into `[low, high]`.
 
 The engine also installs the SugarCube array helpers (`state.inv.first`, `state.deck.toShuffled()`, `state.pool.random(3)`, `state.list.contains(x)`, `state.arr.toUnique()`, …) and string helpers (`"hello".toUpperFirst()`, `"abc".count('a')`, …) on the Array and String prototypes, so you can call them directly on any state value.
+
+### Functions (spec 37)
+
+Sometimes multiple passages need the same piece of logic. Define it once as a **function** and call it from anywhere. Functions live in **function nodes** — mark any node as a *Function node* in the editor (checkbox), then write one or more `{fn: name, p1, p2} … {endfn}` blocks in its body. The node becomes a catalogue; it's excluded from navigation and validation.
+
+```
+{fn: double, x}
+    {return: temp.x * 2}
+{endfn}
+{fn: addrep, amt}
+    {set: state.reputation = state.reputation + temp.amt}
+{endfn}
+```
+
+Call it two ways:
+
+- Display a result: `{call: double, 21}` shows `42` (like `{print:}`; `undefined`/objects show nothing).
+- Use the raw value in an expression: `{set: state.total = call("add", state.total, 10)}` or `{if: call("hasItem", state.sword) > 0}`.
+
+Rules:
+- Params bind as `temp.<param>` inside the body; the caller's `temp` is untouched.
+- `state` changes made in a body **persist** (that's how `addReputation` works).
+- `{return: expr}` is what the call produces; no `{return:}` means no output. Body text is otherwise discarded.
+- Function names are global and unique — the last definition wins (with a console warning).
 
 ### Nodes
 Each node is a story passage. One node is special: `"side_panel"` — its text renders persistently in a sidebar (use it for a HUD/status display). The first non-`side_panel` node in the list becomes the starting passage.
@@ -87,10 +111,10 @@ The reveal happens **once per entry** to a passage: if the passage re-renders (t
 
 ```
 // Countdown that stops when it hits zero
-{live:1000}{if: state.bomb > 0}{set: state.bomb -= 1}{endif}⏱ {var:state.bomb}{endlive}
+{live:1000}{if: state.bomb > 0}{set: state.bomb -= 1}{endif}⏱ {print:state.bomb}{endlive}
 
 // Health regen in the side panel
-{live:2000}{set: state.hp = Math.min(state.hp + 1, state.maxhp)}HP {var:state.hp}{endlive}
+{live:2000}{set: state.hp = Math.min(state.hp + 1, state.maxhp)}HP {print:state.hp}{endlive}
 
 // Timed transition
 {live:1000}{if: state.bomb <= 0}{redirect: boom}{endif}{endlive}
@@ -140,7 +164,7 @@ Build stat/inventory/wardrobe screens with `{table:}...{endtable}`, `{tr:}...{en
 - `{table:}` params: `w=` (px), `center`, `border=1`, `cellpadding=`, `cellspacing=`, `class=`.
 - `{tr:}`: `align=`, `class=`. `{td:}`: `w=`, `align=`, `valign=`, `colspan=`, `rowspan=`, `class=`.
 - `{bar: expr, max=100, w=, color=, class=}` — fill = `value/max` clamped to 0–100%. An unset `state.x` shows an **empty bar**; a bad expression renders the tag literally so you see the mistake.
-- Cell content is normal markup — `{var:}`, bold/italic, links, `{img:}`, `{dialogue:}`, and nested `{bar:}` all work inside cells.
+- Cell content is normal markup — `{print:}`, bold/italic, links, `{img:}`, `{dialogue:}`, and nested `{bar:}` all work inside cells.
 - A `{bar:}` inside a `{live:}` region re-evaluates every tick, so stat bars stay live.
 - Put each tag on its own line (no blank lines inside a table) so cells join cleanly without stray `<br>`s.
 
@@ -174,12 +198,12 @@ Every story MUST have a node with `id: "side_panel"`. This is never shown as a m
 {
     "id": "side_panel",
     "title": "Status",
-    "text": "HP: {var:state.hp} | Gold: {var:state.gold} | Key: {var:state.has_key}",
+    "text": "HP: {print:state.hp} | Gold: {print:state.gold} | Key: {print:state.has_key}",
     "choices": []
 }
 ```
 
-The `{variable_name}` syntax interpolates current runtime values. Put `{action: ...}...{endaction}` blocks in the side panel text to add persistent HUD buttons.
+The `{printiable_name}` syntax interpolates current runtime values. Put `{action: ...}...{endaction}` blocks in the side panel text to add persistent HUD buttons.
 
 ## The Special `setup` Node
 

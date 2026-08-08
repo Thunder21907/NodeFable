@@ -16,14 +16,14 @@ let ctx;
 
 test('walker: numeric {live:} emits placeholder token and stores region', () => {
     ctx = freshGame();
-    const out = ctx.game.processDirectives('pre {live: 1000}{var: state.bomb}{endlive} post');
+    const out = ctx.game.processDirectives('pre {live: 1000}{print: state.bomb}{endlive} post');
     if (!out.includes('\u0000nflive_0\u0000')) throw new Error('expected nflive placeholder token, got: ' + JSON.stringify(out));
     const html = ctx.game.renderContent(out, []);
     if (!html.includes('nf-live') || !html.includes('data-live-region="0"')) throw new Error('renderContent must emit nf-live div, got: ' + html);
     if (ctx.game._liveRegions.length !== 1) throw new Error('region must be stored');
     const r = ctx.game._liveRegions[0];
     if (r.interval !== 1000) throw new Error('interval 1000, got ' + r.interval);
-    if (!r.body.includes('{var: state.bomb}')) throw new Error('body must be stored verbatim');
+    if (!r.body.includes('{print: state.bomb}')) throw new Error('body must be stored verbatim');
 });
 
 test('interval clamped to 50ms floor', () => {
@@ -54,7 +54,7 @@ test('render() fills region display from body without executing its set', () => 
     ctx = freshGame();
     ctx.game.nodes['r1'] = {
         id: 'r1',
-        text: '{live: 1000}{set: state.bomb += 1}[{var: state.bomb}]{endlive}',
+        text: '{live: 1000}{set: state.bomb += 1}[{print: state.bomb}]{endlive}',
         choices: [], on_enter: null,
     };
     ctx.game.render('r1');
@@ -66,7 +66,7 @@ test('render() fills region display from body without executing its set', () => 
 });
 
 test('passage set + render updates region display without re-incrementing', () => {
-    ctx.game.nodes['r1'].text = '{live: 1000}{set: state.bomb += 1}[{var: state.bomb}]{endlive}';
+    ctx.game.nodes['r1'].text = '{live: 1000}{set: state.bomb += 1}[{print: state.bomb}]{endlive}';
     ctx.game.state.bomb = 7;
     ctx.game.render('r1');
     if (ctx.game.state.bomb !== 7) throw new Error('passage render must not run region set');
@@ -78,7 +78,7 @@ test('tickRegion executes body set exactly once and cascades re-render', () => {
     ctx = freshGame();
     ctx.game.nodes['tick'] = {
         id: 'tick',
-        text: '{live: 200}{set: state.bomb -= 1}count {var: state.bomb}{endlive}',
+        text: '{live: 200}{set: state.bomb -= 1}count {print: state.bomb}{endlive}',
         choices: [], on_enter: null,
     };
     ctx.game.render('tick');
@@ -156,7 +156,7 @@ test('region in side_panel persists and re-renders across passage navigation', (
     ctx = freshGame();
     ctx.game.nodes['side_panel'] = {
         id: 'side_panel',
-        text: 'HP {var: state.hp}/{var: state.maxhp} {live: 500}{set: state.hp = Math.min(state.hp + 1, state.maxhp)}HP {var: state.hp}{endlive}',
+        text: 'HP {print: state.hp}/{print: state.maxhp} {live: 500}{set: state.hp = Math.min(state.hp + 1, state.maxhp)}HP {print: state.hp}{endlive}',
         choices: [], on_enter: null,
     };
     ctx.game.nodes['p1'] = { id: 'p1', text: 'room one', choices: [], on_enter: null };

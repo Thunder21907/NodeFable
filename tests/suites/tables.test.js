@@ -96,10 +96,10 @@ test('bar options: color, w, class', () => {
     if (!html.includes('style="width:198px"')) throw new Error('outer width missing: ' + html);
 });
 
-test('markup in cells renders: {var:}, bold, link, img', () => {
+test('markup in cells renders: {print:}, bold, link, img', () => {
     const g = freshGame().game;
     g.state.name = 'Alice';
-    const text = g.processDirectives('{table:}{tr:}{td:}{var: state.name} **hi** [go](node:next){endtd}{endtr}{endtable}');
+    const text = g.processDirectives('{table:}{tr:}{td:}{print: state.name} **hi** [go](node:next){endtd}{endtr}{endtable}');
     const html = g.renderContent(text, [{ target_node_id: 'next', text: 'go' }]);
     if (!html.includes('Alice')) throw new Error('var not resolved in cell');
     if (!html.includes('<strong>hi</strong>')) throw new Error('bold not resolved in cell');

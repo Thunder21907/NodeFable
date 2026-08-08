@@ -15,7 +15,7 @@ function freshGame(data) {
     return ctx;
 }
 
-test('scope wiring: helper in {if:}, {set:} RHS, {var:}-adjacent', () => {
+test('scope wiring: helper in {if:}, {set:} RHS, {print:}-adjacent', () => {
     const { game } = freshGame();
     if (game.processDirectives('{if: helper.random(1, 1000) > 0}yes{endif}') !== 'yes') throw new Error('helper in condition failed');
     game.processDirectives('{set: state.c = helper.clamp(50, 0, 10)}');
@@ -189,10 +189,10 @@ test('read-only helper: reassignment silently no-ops (sloppy eval)', () => {
     if (typeof game.helper.random !== 'function') throw new Error('helper must remain read-only');
 });
 
-test('helper is not a {var:} display scope', () => {
+test('print: helpers are an expression scope', () => {
     const { game } = freshGame();
-    const out = game.processDirectives('{var: helper.random(1,2)}');
-    if (!out.includes('{var: helper.random(1,2)}')) throw new Error('helper must not be a var scope, got: ' + out);
+    const out = game.renderContent(game.processDirectives('{print: helper.random(1, 2)}'), []);
+    if (!/^<p>[12]<\/p>$/.test(out)) throw new Error('helper must evaluate in print, got: ' + out);
 });
 
 module.exports = { run() { return section('Spec 34 — helper + prototypes + brace-aware set') && 0; } };

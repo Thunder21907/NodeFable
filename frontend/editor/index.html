@@ -905,6 +905,9 @@
         .node-utility {
             border-left: 4px solid #95a5a6 !important;
         }
+        .node-function {
+            border-left: 4px solid #9b59b6 !important;
+        }
         .node-portal {
             border-style: dashed !important;
             opacity: 0.7;
@@ -1149,9 +1152,14 @@
                     Starting node (game begins here)
                 </label>
 
-                <label for="passage-is-utility" class="label-checkbox">
+<label for="passage-is-utility" class="label-checkbox">
                     <input type="checkbox" id="passage-is-utility" onchange="toggleUtilityNode(this.checked)">
                     Utility node (Use for {include:} nodes)
+                </label>
+
+                <label for="passage-is-fn" class="label-checkbox">
+                    <input type="checkbox" id="passage-is-fn" onchange="toggleFnNode(this.checked)">
+                    Function node (catalogue of {fn:} blocks)
                 </label>
 
                 <label for="passage-group">Group</label>
@@ -1169,7 +1177,7 @@
                     <button type="button" class="md-btn" onclick="insertMarkdown('\n1. ','')" title="Numbered List">1.</button>
                 </div>
 
-                <h3>Choices (Links)</h3>
+                <h3 id="choices-h3">Choices (Links)</h3>
                 <div id="choices-list">
                     <p id="no-choices-msg" class="text-muted-sm">Use the Link button [Link] on a node to connect passages.</p>
                 </div>
@@ -1177,6 +1185,13 @@
                 <h3 class="subsection-title">On Enter</h3>
                 <div id="onenter-section">
                     <p class="text-muted-sm">No on-enter redirect configured.</p>
+                </div>
+
+                <div id="fn-section" class="is-hidden">
+                    <h3 class="subsection-title">Functions (catalogue)</h3>
+                    <p class="text-muted-sm">Each `{fn: name, p1, p2} … {endfn}` block in the passage body is registered by name.</p>
+                    <button type="button" class="md-btn" onclick="insertFnBlock()">Insert Function Block</button>
+                    <div id="fn-list"></div>
                 </div>
 
                 <div class="passage-actions">

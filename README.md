@@ -20,7 +20,7 @@ Draw connections between nodes to define choices. Each connection creates a choi
 
 ### Markdown Code Editor
 
-Full-page CodeMirror editor with syntax highlighting for all NodeFable syntax — `{if:}`, `{set:}`, `{while:}`, `{for:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{include:}`, `{var:}`, and more. Auto-complete node slugs, action IDs, variable names, and keywords with `Ctrl+Space`. Supports spellcheck mode and bracket matching.
+Full-page CodeMirror editor with syntax highlighting for all NodeFable syntax — `{if:}`, `{set:}`, `{while:}`, `{for:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{include:}`, `{print:}`, and more. Auto-complete node slugs, action IDs, variable names, and keywords with `Ctrl+Space`. Supports spellcheck mode and bracket matching.
 
 ![Markdown Code Editor](frontend/editor/Assets/Screenshots/Markdown_Code_Editor.png)
 
@@ -72,7 +72,7 @@ Full runtime engine built into the exported game, no plugins needed:
 - **Video** — `{video: url, autoplay, repeat, mute, w=480, h=270}` native player with controls
 - **Form Elements** — `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}` for player input during gameplay
 - **Random Numbers** — `{random:max}` or `{random:min,max}` for chance events
-- **Variable Interpolation** — `{var:state.player_name}` displayed in text
+- **Variable Interpolation** — `{print:state.player_name}` displayed in text
 - **Notifications** — `notify("message")` and auto-detection of state changes with formatted diffs
 - **Side Panel** — Persistent HUD node rendered alongside all passages
 - **History** — Forward/back navigation with full browsing history stack
@@ -129,7 +129,7 @@ A node's text can include:
 - `[Go to forest](node:forest)` — a choice link to another node
 - `[Bribe guard](action:a0)` — an action link that triggers variable changes
 - `{if: state.gold >= 10}Rich!{else}Broke.{endif}` — conditional text
-- `{for: state.i = 0; state.i < 3; state.i += 1}{var: state.i}{endfor}` — C-style loops
+- `{for: state.i = 0; state.i < 3; state.i += 1}{print: state.i}{endfor}` — C-style loops
 - `{while: state.hp > 0}...{endwhile}` — conditional loops
 - `{set: state.hp -= 10}` — inline variable mutation
 - `{wait:2000}...{endwait}` — timed fade sequences
@@ -138,7 +138,7 @@ A node's text can include:
 - `{video: assets/rain.mp4, w=480, autoplay=false}` — video player
 - `{include: prologue}` — splice another passage into this one
 - `{init}...{endinit}` — one-time setup block
-- `{var:state.player_name}` — variable interpolation
+- `{print:state.player_name}` — variable interpolation
 - `{textfield: state.name, Enter name, onEnterKey}` — single-line player input
 - `{textarea: state.bio, Your story..., blur, 5}` — multiline input
 - `{number: state.age, 1, 150}` — numeric stepper
@@ -191,17 +191,7 @@ A standalone, stdlib-only Python tool that converts a Twine/SugarCube HTML expor
 python3 -m converter path/to/story.html --out path/to/registry.json
 ```
 
-Conversion happens in steps so each stage is reviewable:
-
-1. **Identify** — parse the story: passages (classified into content/widget/special), start node, format/IFID, global `setup.*` constants and `$*` variables, including static evaluation of simple JS expressions (literals, arrays, objects, `new Map(...)`, `Math.*`, string concatenation with `$var` references). Unresolvable expressions are flagged, not guessed.
-2. **Translate** — (planned) map SugarCube macros/links to NodeFable syntax (`$x` → `state.x`, `[[go]]` → `[go](node:slug)`, ...).
-3. **Group** — (planned) split passages into NodeFable groups and emit `manifest.json` + `groups/*.json`.
-
-Tests (synthetic SugarCube fixture):
-
-```bash
-python3 -m unittest discover converter/tests
-```
+See `converter/README.md` for the full pipeline, module layout, and tests. Converter documentation lives in `converter/`, not in `docs/`.
 
 ## Branches & Releases
 

@@ -11,6 +11,8 @@ import { insertImage } from './js/asset-explorer.js';
 import {
     toggleStartNode,
     toggleUtilityNode,
+    toggleFnNode,
+    insertFnBlock,
     toggleOnEnter,
     updateOnEnterField,
     saveCurrentContent
@@ -26,6 +28,8 @@ window.toggleSpellcheck = toggleSpellcheck;
 window.validateSlugOnBlur = validateSlugOnBlur;
 window.toggleStartNode = toggleStartNode;
 window.toggleUtilityNode = toggleUtilityNode;
+window.toggleFnNode = toggleFnNode;
+window.insertFnBlock = insertFnBlock;
 window.changeNodeGroup = changeNodeGroup;
 window.insertMarkdown = insertMarkdown;
 window.insertImage = insertImage;

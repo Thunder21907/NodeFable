@@ -108,7 +108,7 @@
 **`#tab-markdown`** (lines 126–135):
 - Contains `<div id="passage-content-editor">` — hosts the CodeMirror 5 instance
 - CodeMirror initialized with custom `nodefable` mode (markdown + NodeFable syntax overlay), `material-darker` theme, line numbers, line wrapping, and matchbrackets
-- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{var:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{table:}`, `{tr:}`, `{td:}`, `{bar:}`, `{endtable}`, `{endtr}`, `{endtd}`, `{action:}`, `{endaction}`, `{include:}`, `{live:}`, `{endlive}`, `state.varname` / `temp.varname` / `setup.varname` / `helper.*`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` links
+- Custom syntax highlighting for: `{if}/{else}/{endif}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{set:}`, `{redirect:}`, `{random:}`, `{print:}`, `{wait:}`, `{dialogue:}`, `{img:}`, `{video:}`, `{table:}`, `{tr:}`, `{td:}`, `{bar:}`, `{endtable}`, `{endtr}`, `{endtd}`, `{action:}`, `{endaction}`, `{include:}`, `{live:}`, `{endlive}`, `{fn:}`, `{endfn}`, `{return:}`, `{call:}`, `state.varname` / `temp.varname` / `setup.varname` / `helper.*`, `notify()`, `game.newGame()`, `true`/`false`, numbers, `[text](node:slug)` links
 - Autocomplete via `Ctrl-Space` or on `.` / `:` keystroke: suggests node slugs (in `node:` or `{include:` context), variable names (after `state.`), and keywords (`if:`, `endif`, `set:`, `action:`, `endaction`, `live:`, `endlive`, etc.)
 - Below: `.helper-text` with link to Tutorial page
 
@@ -127,6 +127,7 @@ Located in `#sidebar > #inspector-panel`. Shown/hidden based on node selection.
 | Error display (line 514) | `passage-id-error` | Hidden `<p>` for slug validation errors |
 | Start checkbox (line 517) | `passage-is-start` | `onchange="toggleStartNode(this.checked)"` — marks the starting node (hidden for `side_panel`) |
 | Utility checkbox (line 537) | `passage-is-utility` | `onchange="toggleUtilityNode(this.checked)"` — content-only node spliced via `{include:}`, exempt from reachability warnings (hidden for `side_panel`, no exclusivity) |
+| Function checkbox | `passage-is-fn` | `onchange="toggleFnNode(this.checked)"` — marks the node as a `{fn:}` catalogue (hidden for `side_panel`, no exclusivity). When checked, the Choices + On Enter panels are swapped for the Functions (catalogue) pane |
 
 ### 4.2 Markdown Toolbar (lines 516–525)
 
@@ -151,6 +152,10 @@ Class `.md-toolbar`, 8 buttons:
 
 - `#onenter-section` — placeholder for redirect configuration
 - Default: "No on-enter redirect configured."
+
+### 4.4a Functions catalogue panel
+
+- `#fn-section` (hidden by default; shown when the node is a function node) — holds a `#fn-list` of parsed `{fn: name, ...}` rows and an **Insert Function Block** button calling `insertFnBlock()` (prepends `{fn: name, arg1, arg2}\n{return: }\n{endfn}\n` at the cursor).
 
 ### 4.5 Save/Delete Buttons (lines 543–546)
 
@@ -288,6 +293,7 @@ Class `.md-toolbar`, 8 buttons:
 - `.node-start` (line 896): green left border — starting node
 - `.node-side-panel` (line 899): orange left border + `#2a2a2a` background — side panel node
 - `.node-utility` (line 903): grey left border (`#95a5a6`) — utility node (content-only, spliced via `{include:}`, exempt from validation)
+- `.node-function`: purple left border (`#9b59b6`) — function node ({fn:} catalogue, exempt from validation and navigation)
 
 ### 9.9 Drawflow Canvas (line 364)
 
@@ -362,6 +368,8 @@ All button handlers are global functions defined in `app.js`, referenced via HTM
 | `onclick="insertMarkdown('\n- ','')"` | Bullet List | Line 522 |
 | `onclick="insertMarkdown('\n1. ','')"` | Numbered List | Line 523 |
 | `onchange="toggleUtilityNode(this.checked)"` | Utility node checkbox | Line 537 |
+| `onchange="toggleFnNode(this.checked)"` | Function-node checkbox | — |
+| `onclick="insertFnBlock()"` | Insert function block | — |
 | `onclick="updateCurrentNode()"` | Save Passage | Line 544 |
 | `onclick="deleteCurrentNode()"` | Delete Node | Line 545 |
 | `onclick="confirmSave()"` | Save modal confirm | Line 558 |

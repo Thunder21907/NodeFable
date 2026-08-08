@@ -13,6 +13,7 @@ import os
 import sys
 
 from .registry import build_registry, render_report, write_registry
+from .paths import default_output_dir
 
 
 def main(argv=None):
@@ -23,7 +24,10 @@ def main(argv=None):
     )
     ap.add_argument("story", help="Path to the .html export file")
     ap.add_argument("--out", default=None, help="Where to write the registry JSON "
-                    "(default: <story_dir>/<story_name>_registry.json)")
+                    "(default: <converter>/data/<project>/registry.json)")
+    ap.add_argument("--data-dir", default=None,
+                    help="Root folder for per-project outputs "
+                         "(default: <converter>/data)")
     ap.add_argument("--no-report", action="store_true",
                     help="Suppress the console report")
     args = ap.parse_args(argv)
@@ -36,8 +40,9 @@ def main(argv=None):
 
     out = args.out
     if not out:
-        base = os.path.splitext(args.story)[0]
-        out = base + "_registry.json"
+        out = os.path.join(default_output_dir(registry, args.data_dir),
+                           "registry.json")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     write_registry(registry, out)
     print(f"registry written -> {out}")
 

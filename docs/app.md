@@ -2,8 +2,6 @@
 
 > **Branching convention:** `main` is the stable, user-facing branch (default clone, release-tagged, branch-protected). `develop` is the staging branch where active feature work happens. All engine changes land on `develop` and are merged into `main` only after `node tests/run.js` passes. See `README.md → Branches & Releases`.
 
-> **Twine converter:** a separate stdlib-only Python tool (`converter/`, standalone from the editor) converts Twine/SugarCube HTML exports into NodeFable projects. Step 1 (identify passages / `setup.*` constants / `$*` variables) is implemented with unit tests under `converter/tests/`. See `README.md → Twine / SugarCube Converter`. It does not touch the frontend runtime.
-
 ## Overview
 
 The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js` is the entrypoint (loaded via `<script type="module" src="app.js"></script>`); it initializes Drawflow + CodeMirror, calls the wiring functions, and exposes window-level handlers for inline HTML attributes (`onclick`/`onchange`/`onblur`). All business logic lives in `frontend/editor/js/` modules. There is no framework.
@@ -128,9 +126,9 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 
 | Token | Match |
 |---|---|
-| `keyword` | `{if:}` / `{elseif:}` / `{else}` / `{endif}`, `{set:}`, `{redirect:}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{endradiogroup}`, `{radiobutton:}`, `{wait:...}{endwait}`, `{endwait}`, `{dialogue:}`, `{enddialogue}`, `{img:}`, `{video:}`, `{audio:}`, `{action:}`, `{endaction}`, `{live:}`, `{endlive}`, `{while:}` / `{endwhile}`, `{do}`, `{break}`, `{continue}`, `{for:}` / `{endfor}`, `{unset:}`, `{include:}`, `{init}` / `{endinit}` |
+| `keyword` | `{if:}` / `{elseif:}` / `{else}` / `{endif}`, `{set:}`, `{redirect:}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{endradiogroup}`, `{radiobutton:}`, `{wait:...}{endwait}`, `{endwait}`, `{dialogue:}`, `{enddialogue}`, `{img:}`, `{video:}`, `{audio:}`, `{action:}`, `{endaction}`, `{live:}`, `{endlive}`, `{while:}` / `{endwhile}`, `{do}`, `{break}`, `{continue}`, `{for:}` / `{endfor}`, `{unset:}`, `{include:}`, `{init}` / `{endinit}`, `{fn:}`, `{endfn}`, `{return:}`, `{call:}` |
 | `builtin` | `{random:n,m}`, `notify(`, `game.newGame(` |
-| `variable-2` | `{var:state.x}` / `{var state.x}`, bare `state.varname` / `temp.varname` / `setup.varname`, array access `state.myarray[0]` / `state.myarray[state.id]` and `.size` |
+| `variable-2` | `{print:state.x}` / `{print state.x}`, bare `state.varname` / `temp.varname` / `setup.varname`, array access `state.myarray[0]` / `state.myarray[state.id]` and `.size` |
 | `atom` | `true` / `false` |
 | `number` | numeric literals |
 
@@ -142,7 +140,7 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 - After `state.` / `setup.`: suggests matching variable names from the state/setup stores (`variables` / `setupVariables`); after `temp.` only the prefix is offered (temp has no editor store — runtime-only); after `helper.`: suggests `random`, `either`, `clone`, `clamp`.
 - After `{include:`: suggests matching passage slugs from `slugToNodeId`.
 - A bare `state`/`temp`/`setup`/`helper` / `state.`/`temp.`/`setup.`/`helper.` token: suggests the scoped prefixes.
-- General word completion: suggests the NodeFable keyword list (`if:`, `elseif:`, `else`, `endif`, `set:`, `redirect:`, `random:`, `textfield:`, `textarea:`, `number:`, `checkbox:`, `dropdown:`, `radiogroup`, `radiobutton:`, `endradiogroup`, `var:`, `wait:`, `endwait`, `dialogue:`, `enddialogue`, `img:`, `video:`, `audio:`, `action:`, `endaction`, `include:`, `live:`, `endlive`, `while:`, `endwhile`, `do`, `break`, `continue`, `for:`, `endfor`, `unset:`, `init`, `endinit`, `setup`, `helper`, `true`, `false`, `notify(`, `game.newGame()`).
+- General word completion: suggests the NodeFable keyword list (`if:`, `elseif:`, `else`, `endif`, `set:`, `redirect:`, `random:`, `textfield:`, `textarea:`, `number:`, `checkbox:`, `dropdown:`, `radiogroup`, `radiobutton:`, `endradiogroup`, `print:`, `wait:`, `endwait`, `dialogue:`, `enddialogue`, `img:`, `video:`, `audio:`, `action:`, `endaction`, `include:`, `live:`, `endlive`, `while:`, `endwhile`, `do`, `break`, `continue`, `for:`, `endfor`, `unset:`, `init`, `endinit`, `fn:`, `endfn`, `return:`, `call:`, `setup`, `helper`, `true`, `false`, `notify(`, `game.newGame()`).
 
 `inputRead` triggers autocomplete automatically after typing `.` or `:`. `hintOptions.completeSingle = false`.
 
@@ -665,6 +663,8 @@ Each node in `nodesData` has `is_start: bool`. The `#passage-is-start` checkbox 
 
 Each node also has `is_utility: bool`. The `#passage-is-utility` checkbox toggles it via `toggleUtilityNode()` (called from `onchange`). Unlike `is_start` there is **no exclusivity** — any number of nodes may be utility. The `side_panel` node hides this checkbox too (it has its own special-casing and cannot be flagged utility). `is_utility` is a validation/editor concern only: the flag exempts the node from `validateDeadEnds()` and `validateOrphans()` (mirroring the `side_panel` guard) and adds a grey `node-utility` border on canvas, but the node **stays in the exported game** — the runtime `{include:}` splice needs its text.
 
+**`is_function` (Spec 37).** Each node also has `is_function: bool`, toggled by the `#passage-is-fn` checkbox via `toggleFnNode()` (no exclusivity; multiple function nodes allowed, hidden for `side_panel`). When checked, the passage editor swaps the Choices + On Enter panels for a **Functions (catalogue)** pane (`#fn-section`), which renders the `{fn:}` blocks parsed in the body (`renderFnList`); an **Insert Function Block** button (`insertFnBlock`) prepends `{fn: name, arg1, arg2}\n{return: }\n{endfn}\n` at the cursor via `insertAtCursor`. `updateFnBadgeOnCanvas()` toggles a purple `node-function` left border. The flag round-trips through save/load, group collapse/load mapping, import, and `ensureNodeData` defaults. Like `is_utility`, it exempts the node from dead-end/orphan validation **and** (unlike `is_utility`) excludes it from runtime navigation — the engine registers its `{fn:}` blocks at boot and never treats the node as reachable. See the function-nodes directive section below.
+
 **Bug fix (Jul 2026):** Drawflow passes `nodeId` as a string in events. The `parseInt(nid) !== selectedNodeId` comparison in both `toggleStartNode()` and `updateCurrentNode()` therefore failed intermittently (`4 !== "4"`), causing the loop to clear the current node's own `is_start`. Fixed by normalizing `selectedNodeId = parseInt(nodeId)` in `openPassageEditor()`. Note: `selectedNodeId` can go stale when switching nodes — always read from the event argument, not `selectedNodeId`, for checks that must reference a specific node from an event context.
 
 `updateStartBadgeOnCanvas()` adds/removes a green "START" badge on the Drawflow node element. `updateUtilityBadgeOnCanvas()` toggles the grey `node-utility` border.
@@ -868,7 +868,7 @@ render(nodeId)
   ├─ if text contains {redirect:} → run processDirectives(), fire redirect (slug) or goBack() (reserved 'back'), re-enter render()
   └─ else
        ├─ _preprocessText(text)
-│    ├─ processDirectives(text)   ← directives: {set:} {var:} {if:} {while:} {do} {break} {continue} {for:} {unset:} {init} {include:} {action:} {live:}
+│    ├─ processDirectives(text)   ← directives: {set:} {print:} {if:} {while:} {do} {break} {continue} {for:} {unset:} {init} {include:} {action:} {live:} {fn:} {return:} {call:}
 │    └─ strip remaining {redirect:} directives
 └─ renderContent(text)
      ├─ {random:} resolved
@@ -876,7 +876,7 @@ render(nodeId)
      ├─ {table:}/{tr:}/{td:}/{bar:} tags → <table>/<tr>/<td>/<div class="nf-bar"> (newline hygiene: open consumes 1 preceding \n, close consumes 1 following \n)
      ├─ {wait:}/{dialogue:} blocks → animated containers ({wait:} gated on _freshEntry)
      ├─ {live:} placeholder tokens (\u0000nflive_<n>\u0000) → .nf-live container divs
-     ├─ {var:} placeholder tokens (\u0000nfvar_<n>\u0000) → captured values
+     ├─ {print:} placeholder tokens (\u0000nfvar_<n>\u0000) → captured values
      └─ choice links (prerequisites evaluated → class="disabled", indices into the merged list)
 ```
 
@@ -891,7 +891,7 @@ Helpers (all on the runtime `Game`/engine object):
 | Helper | Role |
 |---|---|
 | `processDirectives(text)` | Public entry point; dispatches on each directive. |
-| `_processDirectives(text, inLoop)` | Recursive body handler; returns `{ text, signal }` where `signal` is `'break'`, `'continue'`, or `null`. Out-of-loop `{break}`/`{continue}` render as literal text. |
+| `_processDirectives(text, inLoop)` | Recursive body handler; returns `{ text, signal }` where `signal` is `'break'`, `'continue'`, `'fnreturn'` (from `{return:}` in a function body), or `null`. Out-of-loop `{break}`/`{continue}` render as literal text. |
 | `_selectIfBranch(condText)` | Evaluates one `{if:}`/`{elseif:}` condition; returns `{ result, remaining }` — the condition truthiness and the text after that tag. |
 | `_parseIfBranches(condText, body, elseText, rest, inLoop)` | Splits the block into branches (`if`/`elseif`/`else`), picks the first truthy branch, and processes it. |
 | `_runWhile(condText, body, rest, inLoop)` | 0-or-more loop. Iterates: evaluate condition → process body → propagate `break`/`continue`. Stops after **1000 iterations** (`notify("Loop limit exceeded")`). |
@@ -907,7 +907,7 @@ Helpers (all on the runtime `Game`/engine object):
 | `_activeChoices` | The merged choice list `render()` / `renderSidePanel()` hand to `renderContent` and `navigateTo`. |
 | `_actionBlocks` | Per-render capture of raw action-block bodies, in walker encounter order (reset at the top of `render()` and in `init()`). Each rendered block pushes its body and emits `data-action-block="<index>"`. |
 | `_actionBlockLinks` | Per-render array of the anchor HTML for each rendered action block (same index as `_actionBlocks`). The walker pushes the link and emits a `\u0000nfaction_<idx>\u0000` placeholder token instead of raw HTML; `renderContent` restores the anchor **after** HTML-escaping so the tag survives. |
-| `_renderOnly` | Instance flag (false). When true, `_processDirectives` consumes side-effect/block directives without executing or emitting (one `console.warn` per kind, tracked in `_renderOnlyWarned`): `{set:}`/`{unset:}`/`{include:}`/`{audio:}`/`{redirect:}`/`{break}`/`{continue}`, `{init}`/`{live:}`/`{action:}`/`{wait:}` blocks (skipped to their end tags), loops (`{for:}`/`{while:}`/`{do}` via `_find*End`), and form tags. Everything else (text, `{var:}`, `{if:}` branches, `{random:}`, media, `[text](node:slug)` links) renders normally. Guarded with try/finally and threads through `{if:}` recursion like `_inInit`. |
+| `_renderOnly` | Instance flag (false). When true, `_processDirectives` consumes side-effect/block directives without executing or emitting (one `console.warn` per kind, tracked in `_renderOnlyWarned`): `{set:}`/`{unset:}`/`{include:}`/`{audio:}`/`{redirect:}`/`{break}`/`{continue}`, `{init}`/`{live:}`/`{action:}`/`{wait:}` blocks (skipped to their end tags), loops (`{for:}`/`{while:}`/`{do}` via `_find*End`), form tags, and `{fn:}`/`{endfn}`/`{return:}`/`{call:}`. Everything else (text, `{print:}`, `{if:}` branches, `{random:}`, media, `[text](node:slug)` links) renders normally. Guarded with try/finally and threads through `{if:}` recursion like `_inInit`. |
 | `_liveRegions` | Per-render array of `{ id, interval, body }` for each rendered live region, in walker order (reset at the top of `render()` and in `init()`). |
 | `_liveTimers` | Array of `setInterval` ids from `refreshLiveRegions()`; cleared at the top of `render()` and in `newGame()`/`loadGame()`. |
 | `renderLiveRegion(region)` | Refreshes one region's display: query `[data-live-region="<id>"]`, run the body through `_processDirectives` in **render-only mode**, then `renderContent` the result into the element's innerHTML. |
@@ -984,12 +984,12 @@ The walker dispatches on `{for:}` (6 chars) / `{endfor}` (8 chars), exactly lowe
 
 All expression evaluation funnels through three helpers that bind four scopes into the `new Function` body: `state` (`this.state`), `setup` (`this.setup`), `helper` (`this.helper`), and `temp` (`this.temp`).
 
-- **`_evalBool(expr)`** → `!!new Function('state','setup','helper','temp', 'try { return ' + _norm(expr) + '; } catch(e) { return false; }')(this.state, this.setup, this.helper, this.temp)` — false on any throw.
-- **`_evalMutation(expr, notify)`** → `new Function('state','setup','helper','notify','temp', _norm(expr))(...)` — catches and `console.warn('Mutation failed:')` on throw.
-- **`_evalValue(expr)`** → `new Function('state','setup','helper','temp', 'return ' + _norm(expr))(...)` — `undefined` on throw.
-- The choice-prerequisite inline eval and the `{bar:}` eval were folded onto the same scopes (`_evalBool` for prerequisites; the bar eval is inline with the four scopes).
+- **`_evalBool(expr)`** → `!!new Function('state','setup','helper','temp','call', 'try { return ' + _norm(expr) + '; } catch(e) { return false; }')(this.state, this.setup, this.helper, this.temp, callBinding)` — false on any throw.
+- **`_evalMutation(expr, notify)`** → `new Function('state','setup','helper','notify','temp','call', _norm(expr))(...)` — catches and `console.warn('Mutation failed:')` on throw.
+- **`_evalValue(expr)`** → `new Function('state','setup','helper','temp','call', 'return ' + _norm(expr))(...)` — `undefined` on throw. The `call` binding is `(...r) => this._callFunction(r[0], r.slice(1))`, so `call('name', e1, e2)` is usable in any expression scope (including `{bar:}`).
+- The choice-prerequisite inline eval and the `{bar:}` eval were folded onto the same scopes (`_evalBool` for prerequisites; the bar eval is inline with the four scopes plus `call`).
 
-`_norm` rewrites `((?:state|temp|setup)\.\w+)\.size\b` → `.length` (setup holds no Maps, so the rewrite is always safe). `helper` is **not** a `{var:}` display scope and `{unset:}` only accepts `state|temp`.
+`_norm` rewrites `((?:state|temp|setup)\.\w+)\.size\b` → `.length` (setup holds no Maps, so the rewrite is always safe). `helper` is **not** a `{print:}` display scope and `{unset:}` only accepts `state|temp`.
 
 ### `setup` immutable constants scope
 
@@ -1003,13 +1003,13 @@ All expression evaluation funnels through three helpers that bind four scopes in
 
 `this.temp` is a sibling of `this.state` on the engine object; it is **never serialized** (saves serialize only `state`). `render()` discards it at the start of every fresh render (`if (this._freshEntry) this.temp = {};`), so a new passage starts clean while re-renders of the same passage (action clicks / form events pass the current `nodeId`, so `_freshEntry` is false) keep `temp` — letting an `{init}` build a `temp.items` array that the display code re-reads. `loadGame()` and `loadFromSlot()` reset `this.temp = {}` after restoring `state`. The constructor seeds `temp: {}` and the boot pass resets it before building `setup`.
 
-### `{var:}` placeholder mechanism
+### `{print:}` placeholder mechanism
 
-Instead of a `{var:}`-focused regex pass, the walker now **snapshots** the value of each `{var:}` into `this._varValues[]` and emits a placeholder token `\u0000nfvar_<n>\u0000`. Arrays are snapshotted to their joined string (`join(', ')`) and other values via `String(...)` at capture time, so a stored token is never a live reference into `state` — later mutations (e.g. `{set: state.arr[i] += 1}` inside a loop) cannot leak back into an earlier capture. `renderContent` substitutes these tokens back **after** HTML escaping, so interpolated values that contain HTML (e.g. a variable holding `<b>text</b>`) still render as HTML — matching the pre-refactor behavior. A loop body using `{var:}` captures the value from its own iteration (not the final loop state).
+Instead of a `{print:}`-focused regex pass, the walker now **snapshots** the value of each `{print:}` into `this._varValues[]` and emits a placeholder token `\u0000nfvar_<n>\u0000`. Arrays are snapshotted to their joined string (`join(', ')`) and other values via `String(...)` at capture time, so a stored token is never a live reference into `state` — later mutations (e.g. `{set: state.arr[i] += 1}` inside a loop) cannot leak back into an earlier capture. `renderContent` substitutes these tokens back **after** HTML escaping, so interpolated values that contain HTML (e.g. a variable holding `<b>text</b>`) still render as HTML — matching the pre-refactor behavior. A loop body using `{print:}` captures the value from its own iteration (not the final loop state).
 
-The walker `{var:}` capture regex (Spec 35) accepts `state|temp|setup` prefixes with a single bracket index **and** a trailing dot-field chain (e.g. `{var: state.clients[state.dayW].name}`):
+The walker `{print:}` capture regex (Spec 35) accepts `state|temp|setup` prefixes with a single bracket index **and** a trailing dot-field chain (e.g. `{print: state.clients[state.dayW].name}`):
 ```
-/\{var:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/
+/\{print:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/
 ```
 Resolution order for the captured value:
 - array → `join(', ')`;
@@ -1049,11 +1049,26 @@ Event wiring is delegated on `#app`: the `input` handler covers textfield/textar
 
 `renderContent` expands `{img: url, options}` and `{video: url, options}` into `<img>`/`<video>` elements using the shared `_parseMediaOptions(params)` helper (returns `{ target, w, h, alt, autoplay, repeat, mute }`, defaults `autoplay=true, repeat=true, mute=false`). Options are comma-separated `key=value` pairs; a key with no `=` is a `true` flag; the key and value are trimmed after splitting on the first `=`, so `w = 128` and spaces in the target work. `w`/`h` take the leading integer of the value and are emitted into the inline `style` as `;width:Npx`/`;height:Mpx` (CSS-based, mirroring the old `{img:w=..}` behavior); `alt` is dropped if empty or containing `,`/`}`/`"`. `{video:}` defaults `autoplay=true, repeat=true, mute=false` and always emits `controls` + `preload="metadata"`; `autoplay`/`loop`/`muted` attributes appear only when true; `alt` maps to `aria-label`. Browsers block *audible* autoplay, so pass `mute` for reliable ambient playback (documented caveat, not enforced).
 
-**Legacy removal.** The markdown image forms `![alt](url)` and `![alt](url){img:...}` are **no longer recognized**. `renderContent` protects them at the top of the pipeline with a placeholder token (`\u0000nflegacy_<n>\u0000`, restored right before `{var:}` substitution) so they render **literally** — visibly broken text the author must convert, not a mangled link or a bogus image. The old `<img>`/`{img:}` regexes were deleted. `_rewrite_asset_urls` (`backend/main.py`) now stops its asset-URL match at `,`/`}` (`([^)"\s,}]+)`) so `{img: url, w=64}` targets and adjacent directives rewrite correctly on export/preview.
+**Legacy removal.** The markdown image forms `![alt](url)` and `![alt](url){img:...}` are **no longer recognized**. `renderContent` protects them at the top of the pipeline with a placeholder token (`\u0000nflegacy_<n>\u0000`, restored right before `{print:}` substitution) so they render **literally** — visibly broken text the author must convert, not a mangled link or a bogus image. The old `<img>`/`{img:}` regexes were deleted. `_rewrite_asset_urls` (`backend/main.py`) now stops its asset-URL match at `,`/`}` (`([^)"\s,}]+)`) so `{img: url, w=64}` targets and adjacent directives rewrite correctly on export/preview.
 
 ### Tables & stat bars (`{table:}`/`{tr:}`/`{td:}`/`{bar:}`)
 
 Six display-only tags + `{bar:}` expand in `renderContent` (inserted after the choice-link block, before bold). Each tag is its own regex — no nesting matcher. Newline hygiene: `\n?\{open...\}` consumes at most one preceding newline and `\{close\}\n?` at most one following, so inter-tag newlines never become `<br>` (this runs **before** the `\n`→`<br>` conversion). The table/tr/td tags are parsed by `_parseTableOptions(params, kind)` (`kind` gates which options are honored: `center`/`border`/`cellpadding`/`cellspacing` only on `table`; `valign`/`colspan`/`rowspan` only on `td`). `_parseBarOptions(params)` splits the expression off as everything before the first comma, then reads `max=`/`w=`/`color=`/`class=`; the expression is evaluated at render time via `_evalValue`-style `new Function` and the fill is `value/max × 100` clamped to 0–100%. These tags are **not** in the walker or render-only skip list, so they pass through `_processDirectives` untouched and stay live in live-region refreshes.
+
+### Function nodes (`{fn:}` / `{return:}` / `{call:}`)
+
+Function catalogues (Spec 37) give authors reusable named code with parameters and a return value. A **function node** is any node with `is_function: true`; its passage text holds one or more `{fn: name, p1, p2} … {endfn}` blocks (one node = many functions). Functions are defined **at boot** and resolved globally by name across **all** function nodes.
+
+- **Registry.** `_functions: { name: { params: string[], body: string } }`, populated once in `init(data)` right after nodes are loaded and **before** the `setup` node runs (so boot-time directives in the setup node can call `{fn:}` helpers), and still before start-node selection. `_registerFnCatalogue(text)` scans each `is_function` node's text with the header regex `/\{fn:?\s*([A-Za-z_][\w$]*)((?:,\s*[A-Za-z_][\w$]*)*)\}/i`, captures the body up to the first `{endfn}`, and records `{ params, body }`. Duplicate names → `console.warn('Function redefined, last wins: ')` and overwrite. Catalogue-node slug is irrelevant; identity is the `{fn:}` header name.
+- **Navigation**: the boot filter `mainNodeIds` now also excludes nodes with `is_function` (alongside `side_panel` and `setup`), so a function node is never a start node or reachable target. The editor's `validateDeadEnds`/`validateOrphans` treat `is_function` exactly like `is_utility`.
+- **`_callFunction(name, args)`** — the single invocation path shared by `{call:}` and inline `call()`. Guard: if `_fnDepth >= 50` → `notify('Function recursion limit exceeded.')` and return `undefined`. Unknown name → `console.warn('Unknown function: ')` + `undefined`. Otherwise it increments `_fnDepth`, sets `_inFn = true`, **saves** the caller's `temp`/`_fnReturn`, replaces `this.temp` with a fresh `{}`, binds params as `temp.<p> = args[p]`, resets `_fnReturn`, and runs `_processDirectives(fn.body, false)` inside a `try`, capturing `ret = this._fnReturn` **before** the `finally` restores the caller's `temp`/`_fnReturn`/`_inFn`/`_fnDepth`. Returns `ret` (the value does **not** leak the caller's stale return).
+- **`{return:}`** (a directive in a body): `_processDirectives` sets `this._fnReturn = _evalValue(expr)` and returns `{ text, signal: 'fnreturn' }`. Enclosing `{include:}`/`{if:}` already propagate `r.signal`; the loop runners (`_runWhile`/`_runDoWhile`/`_runFor`) additionally return early on `r.signal === 'fnreturn'`. Runs normally anywhere in an expression scope.
+- **`{call: name, e1, e2}`** — directive form. `_splitArgs` (comma-separated at depth 0, quote/`{`/`(`/`[`-aware) splits the args; `name = parts[0]`, `args = parts.slice(1).map(_evalValue)`. `_callFunction` is invoked, and a defined scalar/array return is pushed through the `\u0000nfvar_<n>\u0000` pipeline (`Array.isArray` → `join(', ')`, else `String`); `undefined` and whole objects render nothing (mirrors `{print:}` suppression). Empty body `{call: name}` → `parts = ['name']`, `args = []`.
+- **Inline `call(name, e1, …)`** — a `call` binding (`(...r) => this._callFunction(r[0], r.slice(1))`) is added to **every** `new Function` expression scope (`_evalBool`, `_evalMutation`, `_evalValue`, and the `{bar:}` inline eval). It returns the **raw** function value to the enclosing expression.
+- **Body semantics**: `state` mutations persist (temporary `temp` is the function-local/parameter scope, restored after). Body text output is discarded — only `{return:}` surfaces. Choices collected by a nested `{include:}` inside a body are suppressed because the include choice guard checks `!this._inFn`.
+- **`_renderOnly`**: `{fn:}`/`{endfn}`/`{return:}`/`{call:}` are consumed + one-time-warned (`fn`/`return`/`call`) in render-only passes, so a function body never leaks directives into a `live` tooltip.
+
+Test coverage: `tests/suites/fn_nodes.test.js` (registration, `{call:}` interpolation, inline `call()`, shared-state + temp isolation, early-exit, undefined/unknown returns, recursion guard, nested calls, navigation exclusion).
 
 ### Wait blocks and re-renders
 

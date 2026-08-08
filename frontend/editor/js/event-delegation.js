@@ -16,7 +16,8 @@ import {
     cancelLinking,
     closePassageEditor,
     updateStartBadgeOnCanvas,
-    updateUtilityBadgeOnCanvas
+    updateUtilityBadgeOnCanvas,
+    updateFnBadgeOnCanvas
 } from './node-editor.js';
 import {
     addGroup,
@@ -533,6 +534,7 @@ export function _buildSavePayload(name) {
             on_enter: data.on_enter || null,
             is_start: data.is_start || false,
             is_utility: data.is_utility || false,
+            is_function: data.is_function || false,
             group: data.group || 'side_panel'
         });
     }
@@ -564,6 +566,7 @@ export function _buildSavePayload(name) {
                 on_enter: cn.on_enter || null,
                 is_start: cn.is_start || false,
                 is_utility: cn.is_utility || false,
+                is_function: cn.is_function || false,
                 group: cn.group || groupId
             });
         }
@@ -693,6 +696,7 @@ export async function confirmLoad() {
                 slug: node.id,
                 is_start: node.is_start || false,
                 is_utility: node.is_utility || false,
+                is_function: node.is_function || false,
                 group: node.group || 'side_panel'
             };
             state.slugToNodeId[node.id] = nodeId;
@@ -741,6 +745,7 @@ export async function confirmLoad() {
         for (const nodeIdStr of Object.keys(state.nodesData)) {
             updateStartBadgeOnCanvas(parseInt(nodeIdStr));
             updateUtilityBadgeOnCanvas(parseInt(nodeIdStr));
+            updateFnBadgeOnCanvas(parseInt(nodeIdStr));
         }
         requestAnimationFrame(() => {
             validateDeadEnds();
@@ -908,6 +913,7 @@ export function importNode() {
             on_enter: (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null,
             is_start: false,
             is_utility: false,
+            is_function: false,
             group: 'side_panel'
         };
         state.slugToNodeId['side_panel'] = nodeId;
@@ -933,6 +939,7 @@ export function importNode() {
     const on_enter = (obj.on_enter && typeof obj.on_enter === 'object') ? obj.on_enter : null;
     const is_start = obj.is_start === true;
     const is_utility = obj.is_utility === true;
+    const is_function = obj.is_function === true;
 
     state.nodesData[nodeId] = {
         title: obj.title,
@@ -942,6 +949,7 @@ export function importNode() {
         on_enter: on_enter,
         is_start: is_start,
         is_utility: is_utility,
+        is_function: is_function,
         group: obj.group || ''
     };
     state.slugToNodeId[slug] = nodeId;
@@ -955,6 +963,7 @@ export function importNode() {
         updateStartBadgeOnCanvas(nodeId);
     }
     updateUtilityBadgeOnCanvas(nodeId);
+    updateFnBadgeOnCanvas(nodeId);
 
     closeModal();
     showToast('Imported node: ' + obj.title);

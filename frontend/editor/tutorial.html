@@ -228,6 +228,7 @@
         <a href="#variables">Variables</a>
         <a href="#setup-constants">Setup Constants</a>
         <a href="#helper-functions">Helper Functions</a>
+        <a href="#functions">Functions</a>
         <a href="#image-catalog">Image Catalog &amp; Asset Tree</a>
         <a href="#audio">Audio Directives</a>
         <a href="#video">Video Player</a>
@@ -251,6 +252,7 @@
 
         <div class="nav-section">Reference</div>
         <a href="#sidepanel">Side Panel Node</a>
+        <a href="#setup-node">Setup Node</a>
         <a href="#inline-mutations">Inline Mutations</a>
         <a href="#wait-sequences">Time Transitions</a>
         <a href="#live-regions">Live Regions</a>
@@ -488,92 +490,6 @@
 </section>
 
 <!-- ============================================================ -->
-<section id="groups">
-<h2>Groups &amp; Portal Nodes</h2>
-<p>
-    Groups let you organize your story into named collections (e.g., chapters, acts, or scenes).
-    Each group is represented by a <strong>portal node</strong> on the canvas — a dimmed,
-    dashed-border node showing the group label and node count. Only one group's nodes are
-    loaded at a time (plus the <code>side_panel</code>), keeping the canvas uncluttered for
-    large projects.
-</p>
-
-<img class="screenshot" src="Assets/Screenshots/Group_Nodes.png" alt="Portal node on the canvas representing a collapsed group">
-
-<h3>Creating a Group</h3>
-<ol>
-    <li>Click <strong>+ Add Group</strong> in the toolbar.</li>
-    <li>A new group is created with an auto-generated ID (e.g., <code>chapter_1</code>) and a
-        <strong>portal node</strong> appears on the canvas.</li>
-    <li>Click the portal node to open the <strong>group editor</strong> in the right sidebar,
-        where you can edit the group label and ID.</li>
-</ol>
-<p>
-    New nodes are unassigned by default. To add a node to a group, select the node
-    and choose a group from the <strong>Group</strong> dropdown in the passage editor.
-</p>
-
-<img class="screenshot" src="Assets/Screenshots/File_explorer_View_Groups.png" alt="File explorer view showing group structure">
-
-<h3>Loading a Group</h3>
-<p>
-    Click a portal node and use one of these methods to load its group:
-</p>
-<ul>
-    <li><strong>Load Group</strong> button in the group editor — replaces the portal with
-        the actual nodes on the canvas.</li>
-    <li><strong>Right-click</strong> the portal → <strong>Load Group</strong>.</li>
-    <li><strong>Move to Group</strong> (right-click) — unloads all other groups and loads
-        the selected one.</li>
-</ul>
-<p>
-    When a group is loaded, its nodes appear at their saved positions. Large groups are
-    loaded in chunks with a progress indicator for smooth performance.
-</p>
-
-<h3>Collapsing a Group</h3>
-<p>
-    To collapse a group's nodes back into a portal node:
-</p>
-<ul>
-    <li>Click the <strong>up-arrow button</strong> (⬆) on any grouped node's top-left corner.</li>
-    <li><strong>Right-click</strong> any node in the group → <strong>Collapse Group</strong>.</li>
-</ul>
-<p>
-    Collapsing stores the nodes' content and positions so they can be restored exactly
-    when the group is loaded again. All connections to nodes in other groups are preserved
-    as <strong>dashed blue portal output lines</strong> on the portal node.
-</p>
-
-<h3>Deleting a Group</h3>
-<p>
-    Right-click a portal node and select <strong>Delete Group</strong>. This removes the
-    group manifest entry and portal node from the canvas. It does <strong>not</strong>
-    delete the individual node data files on disk.
-</p>
-
-<h3>Portal Output Lines</h3>
-<p>
-    When a group is collapsed but other loaded nodes have connections pointing into it,
-    dashed blue SVG lines are drawn from the source node to the portal's input circles.
-    This makes it visually clear that connections still exist through collapsed groups.
-</p>
-
-<h3>Right-Click Context Menu</h3>
-<p>
-    Right-clicking a node on the graph canvas shows a context menu with quick actions:
-</p>
-<ul>
-    <li><strong>On portal nodes:</strong> Load Group, Move to Group, Delete Group.</li>
-    <li><strong>On normal nodes:</strong> Collapse Group, Delete Node.</li>
-</ul>
-<p>
-    The context menu does <strong>not</strong> appear for the Side Panel node.
-</p>
-
-</section>
-
-<!-- ============================================================ -->
 <section id="linking">
 <h2>Linking Passages (Choices)</h2>
 <p>
@@ -684,25 +600,12 @@
 
 <h3>Images</h3>
 <p>
-    To add an image to your passage, you can either <strong>upload directly</strong> or use the
-    <strong>Image Catalog</strong> of already-uploaded assets:
+    Add images to your passage via the markdown toolbar's
+    <strong><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em" style="vertical-align:middle"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z"/></svg> (Image)</strong>
+    button or the <strong>Image Catalog</strong> in the left panel. Save your project at least once first —
+    the project directory must exist on the server to store asset files.
+    See the <a href="#image-catalog" style="color:var(--accent);">Image Catalog</a> section for the full upload flow.
 </p>
-
-<h4>Upload a New Image</h4>
-<ol>
-    <li><strong>Save your project first</strong> — the project directory must exist on the server to store the image file.</li>
-    <li>Click the <strong><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em" style="vertical-align:middle"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z"/></svg> (Image)</strong> button in the formatting toolbar.</li>
-    <li>A native file picker opens. Select an image file from your computer.</li>
-    <li>The image is uploaded to the project's <code>assets/</code> folder and a <code>{img: url}</code> directive is inserted at the cursor.</li>
-</ol>
-
-<h4>Insert from the Image Catalog</h4>
-<p>
-    After uploading, your images appear in the <strong>Image Catalog</strong> in the left panel.
-    Click any asset there to copy its directive syntax, then paste it into your passage content.
-    See the <a href="#image-catalog" style="color:var(--accent);">Image Catalog section</a> for details.
-</p>
-
 <p>
     Images render in the exported game with <code>max-width: 100%</code>.
 </p>
@@ -718,88 +621,16 @@
     Use <code>w=</code> for width and <code>h=</code> for height, separated by a comma. Omit either to let the browser auto-calculate based on the image's aspect ratio. <code>alt=</code> sets accessibility text. The target is everything before the first comma, so spaces in filenames are preserved; the target and <code>alt</code> cannot contain <code>,</code>, <code>}</code>, or <code>"</code>.
 </p>
 
-<div class="warn">
-    <strong>Note:</strong> If you haven't saved the project yet, the image upload button will remind you. Save once, then upload.
-</div>
-
-<h4 id="video">Video Player</h4>
+<h3>Video</h3>
 <p>
-    Embed video with <code>{video: url, options}</code>. Video files (<code>mp4</code>, <code>webm</code>,
-    <code>ogg</code>, <code>mov</code>) upload through the asset explorer like images, and clicking one in
-    the asset tree copies the <code>{video: url}</code> directive.
-</p>
-<pre><code>{video: /api/assets/My%20Journey/rain.mp4}
-{video: /api/assets/My%20Journey/rain.mp4, w=480, h=270}
-{video: /api/assets/My%20Journey/intro.webm, autoplay=false, mute}</code></pre>
-<p>
-    The player always shows controls. Options: <code>autoplay</code> (default <code>true</code>),
-    <code>repeat</code> (loop, default <code>true</code>), <code>mute</code> (default <code>false</code>) as
-    bare flags or <code>key=false</code>, plus <code>w=</code>/<code>h=</code> pixel sizes. Browsers block
-    <em>audible</em> autoplay, so pass <code>mute</code> for reliable ambient autoplay, or
-    <code>autoplay=false</code> to wait for a click. Recommended formats: <code>video/mp4</code> (H.264/AAC)
-    and <code>video/webm</code> (VP9/Opus).
+    Embed video with the <code>{video: url, options}</code> directive.
+    See the <a href="#video" style="color:var(--accent);">Video Directives</a> section for syntax and options.
 </p>
 </section>
 
 <!-- ============================================================ -->
-<section id="audio">
-<h2>Audio Directives</h2>
-<p>
-    Use <code>{audio: url, options}</code> for background music and sound effects.
-    Upload audio files (mp3, wav, ogg, m4a, aac, flac) through the asset explorer,
-    then insert them with this directive in your passage content.
-</p>
-
-<h3>Syntax &amp; Options</h3>
-<pre><code>{audio: assets/bg.mp3}
-{audio: /api/assets/My%20Journey/rain.mp3, loop, volume=0.4, fade=800}
-{audio: hover.ogg, sfx}
-{audio: silence.mp3, stop}</code></pre>
-
-| Directive | Options |
-|---|---|
-| `{audio: url}` | Declare/ensure playing on default music channel (idempotent) | none — track starts or stays playing |
-| `{audio: url, music}` | Same as bare directive; explicit music channel | default `music` channel |
-| `{audio: url, sfx}` | Play on sound effects channel | explicitly selects `sfx` channel |
-| `{audio: url, stop}` | Pause track and reset to 0 (like a "fade out" without animation) | pauses + currentTime = 0 |
-| `{audio: url, pause}` | Pause track at current position (position kept for resume) | preserves currentTime |
-| `{audio: url, restart}` | Reset to 0 and play from start (idempotent on already-playing) | resets then plays |
-
-Other options:
-- `loop` — loop the track (default **false**)
-- `volume=1` — per-track volume 0–1; default is 1. Combined with channel master volume via `musicVolume`/`sfxVolume`
-- `fade=N` — fade-in duration in ms on start (0 = instant; default 0)
-
-Options use the same comma-`key=value` grammar as images/video. The target (URL) is everything before the first comma.
-Bare flags without `=` act as boolean true; `key=value` pairs require an equals sign. Spaces around `=` are fine.
-Unknown keys are ignored.
-
-<h3>Audio Lifecycle Rule</h3>
-<p>
-    After each full render (passage text + <code>{include:}</code> splices), any cached track **not declared**
-    by a play-directive in that render is stopped. Re-declaring an already-playing track is a no-op.
-    This means:
-</p>
-<ul>
-    <li>Per-passage music declares → stops when you leave
-    <li>Cross-passage BGM re-declare every passage — DRY via <code>{include:}</code> + a `music` utility node (see §Including)
-    <li>Always-on HUD music in side panel can't be stopped by a passage (side-panel tracks are always declared)
-    <li>Simply don't re-declare to silence, or use `{audio: url, stop}`
-</ul>
-
-<h3 id="video">Autoplay Caveat</h3>
-<p>
-    Browsers block audible autoplay until page interaction. The game requires "New Game" click for initial sound;
-    later declarations after navigation are always fine.
-</p>
-
-<div class="tip">
-    <strong>Tip:</strong> Use <code>{include: music_node}</code> with a utility node that re-declares your BGM
-    in every passage to avoid duplication.
-</div>
-
-<!-- ============================================================ -->
 <section id="markdown">
+<h2>Markdown Reference</h2>
 <p>
     NodeFable uses a lightweight markdown syntax for passage content.
     The formatting toolbar buttons in the right sidebar help you insert common patterns.
@@ -827,8 +658,17 @@ Unknown keys are ignored.
         <tr><td>Textfield</td><td><code>{textfield: state.var, hint, mode}</code></td><td>&mdash;</td></tr>
         <tr><td>Checkbox</td><td><code>{checkbox: state.var, value}</code></td><td>&mdash;</td></tr>
         <tr><td>Radio Group</td><td><code>{radiogroup}...{endradiogroup}</code> + <code>{radiobutton: state.var, val}</code></td><td>&mdash;</td></tr>
+        <tr><td>Function</td><td><code>{fn: name, p1}...{endfn}</code> / <code>{call: name, args}</code> (see <a href="#functions" style="color:var(--accent);">Functions</a>)</td><td>&mdash;</td></tr>
     </tbody>
 </table>
+
+<h3>Random Values</h3>
+<p>
+    Inline <code>{random:max}</code> renders a random integer from <code>0</code> to <code>max</code> (inclusive);
+    <code>{random:min,max}</code> renders one in <code>[min, max]</code>:
+</p>
+<pre><code>You find {random:50} gold coins.
+You draw {random:1,6} on the die.</code></pre>
 
 <h3>Node Links (Choices)</h3>
 <p>
@@ -850,19 +690,19 @@ Unknown keys are ignored.
 
 <h3>Variable Interpolation</h3>
 <p>
-    Reference a variable's current value in passage content using the <code>{var:state.name}</code> syntax:
+    Reference a variable's current value in passage content using the <code>{print:state.name}</code> syntax:
 </p>
-<pre><code>Your health is {var:state.player_health}.</code></pre>
+<pre><code>Your health is {print:state.player_health}.</code></pre>
 <p>
     In the exported game, this renders as <em>"Your health is 100."</em> (or whatever the current value is).
-    If the variable doesn't exist, the literal <code>{var:state.player_health}</code> is shown.
+    If the variable doesn't exist, the literal <code>{print:state.player_health}</code> is shown.
 </p>
 
 <p>
     <strong>Important distinction:</strong> There are two different <code>{...}</code> syntaxes with different rules:
 </p>
 <ul>
-    <li><strong>Display interpolation</strong> — <code>{var:state.name}</code> — used for showing values in text.</li>
+    <li><strong>Display interpolation</strong> — <code>{print:state.name}</code> — used for showing values in text.</li>
     <li><strong>Conditional blocks</strong> — <code>{if: condition}...{endif}</code> — must use <code>state.</code> prefix in the condition, used for controlling what text appears.</li>
 </ul>
 </section>
@@ -901,9 +741,9 @@ Unknown keys are ignored.
 
 <h3>Inline Content</h3>
 <p>
-    The dialogue body supports all inline markdown — bold, italic, images, choices, action blocks, and <code>{var:state.name}</code> interpolation:
+    The dialogue body supports all inline markdown — bold, italic, images, choices, action blocks, and <code>{print:state.name}</code> interpolation:
 </p>
-<pre><code>{dialogue: Sarah}I've got **{var:state.gold}** gold pieces. Want to trade?{enddialogue}</code></pre>
+<pre><code>{dialogue: Sarah}I've got **{print:state.gold}** gold pieces. Want to trade?{enddialogue}</code></pre>
 
 <h3>Image Paths</h3>
 <p>
@@ -965,10 +805,12 @@ Unknown keys are ignored.
 </div>
 
 <h3>Using Variables in Text</h3>
-<pre><code>Your health is {var:state.player_health}.
-You have {var:state.gold} gold pieces.</code></pre>
+<pre><code>Your health is {print:state.player_health}.
+You have {print:state.gold} gold pieces.</code></pre>
 <p>
     Variables in curly braces are replaced with their current values at game runtime.
+    To remove a variable or clear scratch values, see
+    <code>{unset:}</code> under <a href="#inline-mutations" style="color:var(--accent);">Inline Mutations</a>.
 </p>
 
 <h3>Object Variables (<code>dict</code>)</h3>
@@ -992,13 +834,13 @@ You have {var:state.gold} gold pieces.</code></pre>
 {set: delete state.clients[state.dayW]}                                                        # delete</code></pre>
 <ul>
     <li><strong>has:</strong> <code>{if: state.clients[state.dayW] !== undefined}</code></li>
-    <li><strong>get / display:</strong> <code>{var: state.clients[state.dayW].name}</code></li>
+    <li><strong>get / display:</strong> <code>{print: state.clients[state.dayW].name}</code></li>
     <li><strong>set:</strong> <code>{set: state.clients[state.dayW] = {name:"Sandra", progress:0}}</code></li>
     <li><strong>delete:</strong> <code>{set: delete state.clients[state.dayW]}</code></li>
 </ul>
 <p>
     Object literals inside <code>{set:}</code> work (the parser handles nested <code>{}</code>).
-    Displaying a <strong>whole</strong> object with <code>{var:}</code> shows the macro text unchanged rather than
+    Displaying a <strong>whole</strong> object with <code>{print:}</code> shows the macro text unchanged rather than
     <code>[object Object]</code> — always print a specific field (e.g. <code>.name</code>). Arrays still render joined
     by <code>", "</code>, and <code>.size</code> still aliases to <code>.length</code> on array roots.
 </p>
@@ -1090,6 +932,56 @@ You have {var:state.gold} gold pieces.</code></pre>
 </section>
 
 <!-- ============================================================ -->
+<section id="functions">
+<h2>Functions</h2>
+<p>
+    When several passages need the same chunk of logic, define it once as a <strong>function</strong> and call it
+    from anywhere — in text or inside another expression. Functions let you pass data in, run mutations on
+    <code>state</code>, and return a value.
+</p>
+
+<h3>Authoring Function Nodes</h3>
+<p>
+    Mark any node as a <strong>Function node</strong> with the checkbox in the right sidebar
+    (<em>Function node — catalogue of <code>{fn:}</code> blocks</em>). The node becomes a <strong>catalogue</strong>:
+    its passage body holds one or more <code>{fn: name, p1, p2} … {endfn}</code> blocks. It is excluded from
+    navigation and from dead-end/orphan validation.
+</p>
+<pre><code>{fn: double, x}
+    {return: temp.x * 2}
+{endfn}
+
+{fn: addreputation, amt}
+    {set: state.reputation = state.reputation + temp.amt}
+{endfn}</code></pre>
+
+<h3>Calling a Function</h3>
+<p>
+    Use <code>{call: name, arg1, arg2}</code> to render the function's return value inline (like <code>{print:}</code>);
+    a function with no <code>{return:}</code> or returning <code>undefined</code>/an object renders nothing.
+</p>
+<pre><code>{call: double, 21}
+{call: greet, state.name, "Stern"}</code></pre>
+<p>
+    Or call it as an expression <code>call(&quot;name&quot;, …)</code> anywhere an expression is allowed:
+</p>
+<pre><code>{print: call("double", state.x)}
+{set: state.reputation = call("addreputation", 3)}
+{if: call("hasItem", state.sword) > 0} You have the sword {endif}</code></pre>
+
+<h3>Semantics</h3>
+<ul>
+    <li>Parameters bind as <code>temp.param</code> inside the body — always prefix with <code>temp.</code>.</li>
+    <li><code>state</code> mutations in a body <strong>persist</strong>; the caller's <code>temp</code> is untouched.</li>
+    <li><code>{return: expr}</code> is what the call yields; without it the result is <code>undefined</code> (renders nothing).
+        Body text is otherwise discarded.</li>
+    <li>Function names are global and unique across all function nodes — the last definition wins
+        (with a console warning).</li>
+    <li>Recursion depth is capped at 50.</li>
+</ul>
+</section>
+
+<!-- ============================================================ -->
 <section id="image-catalog">
 <h2>Image Catalog &amp; Asset Tree</h2>
 <p>
@@ -1157,6 +1049,86 @@ You have {var:state.gold} gold pieces.</code></pre>
     markdown syntax with a single click — much faster than re-uploading or typing the URL manually.
     Use folders to organize character portraits, backgrounds, UI elements, and other asset types.
 </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="audio">
+<h2>Audio Directives</h2>
+<p>
+    Use <code>{audio: url, options}</code> for background music and sound effects.
+    Upload audio files (mp3, wav, ogg, m4a, aac, flac) through the asset explorer,
+    then insert them with this directive in your passage content.
+</p>
+
+<h3>Syntax &amp; Options</h3>
+<pre><code>{audio: assets/bg.mp3}
+{audio: /api/assets/My%20Journey/rain.mp3, loop, volume=0.4, fade=800}
+{audio: hover.ogg, sfx}
+{audio: silence.mp3, stop}</code></pre>
+
+| Directive | Options |
+|---|---|
+| `{audio: url}` | Declare/ensure playing on default music channel (idempotent) | none — track starts or stays playing |
+| `{audio: url, music}` | Same as bare directive; explicit music channel | default `music` channel |
+| `{audio: url, sfx}` | Play on sound effects channel | explicitly selects `sfx` channel |
+| `{audio: url, stop}` | Pause track and reset to 0 (like a "fade out" without animation) | pauses + currentTime = 0 |
+| `{audio: url, pause}` | Pause track at current position (position kept for resume) | preserves currentTime |
+| `{audio: url, restart}` | Reset to 0 and play from start (idempotent on already-playing) | resets then plays |
+
+Other options:
+- `loop` — loop the track (default **false**)
+- `volume=1` — per-track volume 0–1; default is 1. Combined with channel master volume via `musicVolume`/`sfxVolume`
+- `fade=N` — fade-in duration in ms on start (0 = instant; default 0)
+
+Options use the same comma-`key=value` grammar as images/video. The target (URL) is everything before the first comma.
+Bare flags without `=` act as boolean true; `key=value` pairs require an equals sign. Spaces around `=` are fine.
+Unknown keys are ignored.
+
+<h3>Audio Lifecycle Rule</h3>
+<p>
+    After each full render (passage text + <code>{include:}</code> splices), any cached track **not declared**
+    by a play-directive in that render is stopped. Re-declaring an already-playing track is a no-op.
+    This means:
+</p>
+<ul>
+    <li>Per-passage music declares → stops when you leave
+    <li>Cross-passage BGM re-declare every passage — DRY via <code>{include:}</code> + a `music` utility node (see §Including)
+    <li>Always-on HUD music in side panel can't be stopped by a passage (side-panel tracks are always declared)
+    <li>Simply don't re-declare to silence, or use `{audio: url, stop}`
+</ul>
+
+<h3 id="autoplay">Autoplay Caveat</h3>
+<p>
+    Browsers block audible autoplay until page interaction. The game requires "New Game" click for initial sound;
+    later declarations after navigation are always fine.
+</p>
+
+<div class="tip">
+    <strong>Tip:</strong> Use <code>{include: music_node}</code> with a utility node that re-declares your BGM
+    in every passage to avoid duplication.
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="video">
+<h2>Video Directives</h2>
+<p>
+    Embed video with <code>{video: url, options}</code>. Video files (<code>mp4</code>, <code>webm</code>,
+    <code>ogg</code>, <code>mov</code>) upload through the asset explorer like images, and clicking one in
+    the asset tree copies the <code>{video: url}</code> directive.
+</p>
+<h3>Syntax &amp; Options</h3>
+<pre><code>{video: /api/assets/My%20Journey/rain.mp4}
+{video: /api/assets/My%20Journey/rain.mp4, w=480, h=270}
+{video: /api/assets/My%20Journey/intro.webm, autoplay=false, mute}</code></pre>
+<p>
+    The player always shows controls. Options: <code>autoplay</code> (default <code>true</code>),
+    <code>repeat</code> (loop, default <code>true</code>), <code>mute</code> (default <code>false</code>) as
+    bare flags or <code>key=false</code>, plus <code>w=</code>/<code>h=</code> pixel sizes. Browsers block
+    <em>audible</em> autoplay, so pass <code>mute</code> for reliable ambient autoplay, or
+    <code>autoplay=false</code> to wait for a click. Recommended formats: <code>video/mp4</code> (H.264/AAC)
+    and <code>video/webm</code> (VP9/Opus).
+</p>
 </section>
 
 <!-- ============================================================ -->
@@ -1266,7 +1238,7 @@ You have {var:state.gold} gold pieces.</code></pre>
 </p>
 
 <div class="note">
-    <strong>Note:</strong> The label is static (no <code>{var:}</code> interpolation inside the tag), and a comma
+    <strong>Note:</strong> The label is static (no <code>{print:}</code> interpolation inside the tag), and a comma
     in the label splits params. Unclosed blocks render literally as text.
 </div>
 </section>
@@ -1454,7 +1426,7 @@ Enter your age: {textfield: state.age, , onEnterKey}</code></pre>
 </p>
 <p>
     The tag is matched case-insensitively (write it lowercase). The included text is processed like any
-    other markup, so <code>{var:}</code>, <code>{if:}</code>, loops, images, and nested includes all work
+    other markup, so <code>{print:}</code>, <code>{if:}</code>, loops, images, and nested includes all work
     inside it:
 </p>
 <pre><code>The inn is quiet tonight.
@@ -1530,6 +1502,92 @@ Mutation: state.maya_encounter_triggered = true</code></pre>
     Conditions evaluate left-to-right, first match wins. You can include <code>{set: }</code> mutations
     inside the block. Text-based redirects run <strong>before</strong> the legacy On Enter field.
 </p>
+</section>
+
+<!-- ============================================================ -->
+<section id="groups">
+<h2>Groups &amp; Portal Nodes</h2>
+<p>
+    Groups let you organize your story into named collections (e.g., chapters, acts, or scenes).
+    Each group is represented by a <strong>portal node</strong> on the canvas — a dimmed,
+    dashed-border node showing the group label and node count. Only one group's nodes are
+    loaded at a time (plus the <code>side_panel</code>), keeping the canvas uncluttered for
+    large projects.
+</p>
+
+<img class="screenshot" src="Assets/Screenshots/Group_Nodes.png" alt="Portal node on the canvas representing a collapsed group">
+
+<h3>Creating a Group</h3>
+<ol>
+    <li>Click <strong>+ Add Group</strong> in the toolbar.</li>
+    <li>A new group is created with an auto-generated ID (e.g., <code>chapter_1</code>) and a
+        <strong>portal node</strong> appears on the canvas.</li>
+    <li>Click the portal node to open the <strong>group editor</strong> in the right sidebar,
+        where you can edit the group label and ID.</li>
+</ol>
+<p>
+    New nodes are unassigned by default. To add a node to a group, select the node
+    and choose a group from the <strong>Group</strong> dropdown in the passage editor.
+</p>
+
+<img class="screenshot" src="Assets/Screenshots/File_explorer_View_Groups.png" alt="File explorer view showing group structure">
+
+<h3>Loading a Group</h3>
+<p>
+    Click a portal node and use one of these methods to load its group:
+</p>
+<ul>
+    <li><strong>Load Group</strong> button in the group editor — replaces the portal with
+        the actual nodes on the canvas.</li>
+    <li><strong>Right-click</strong> the portal → <strong>Load Group</strong>.</li>
+    <li><strong>Move to Group</strong> (right-click) — unloads all other groups and loads
+        the selected one.</li>
+</ul>
+<p>
+    When a group is loaded, its nodes appear at their saved positions. Large groups are
+    loaded in chunks with a progress indicator for smooth performance.
+</p>
+
+<h3>Collapsing a Group</h3>
+<p>
+    To collapse a group's nodes back into a portal node:
+</p>
+<ul>
+    <li>Click the <strong>up-arrow button</strong> (⬆) on any grouped node's top-left corner.</li>
+    <li><strong>Right-click</strong> any node in the group → <strong>Collapse Group</strong>.</li>
+</ul>
+<p>
+    Collapsing stores the nodes' content and positions so they can be restored exactly
+    when the group is loaded again. All connections to nodes in other groups are preserved
+    as <strong>dashed blue portal output lines</strong> on the portal node.
+</p>
+
+<h3>Deleting a Group</h3>
+<p>
+    Right-click a portal node and select <strong>Delete Group</strong>. This removes the
+    group manifest entry and portal node from the canvas. It does <strong>not</strong>
+    delete the individual node data files on disk.
+</p>
+
+<h3>Portal Output Lines</h3>
+<p>
+    When a group is collapsed but other loaded nodes have connections pointing into it,
+    dashed blue SVG lines are drawn from the source node to the portal's input circles.
+    This makes it visually clear that connections still exist through collapsed groups.
+</p>
+
+<h3>Right-Click Context Menu</h3>
+<p>
+    Right-clicking a node on the graph canvas shows a context menu with quick actions:
+</p>
+<ul>
+    <li><strong>On portal nodes:</strong> Load Group, Move to Group, Delete Group.</li>
+    <li><strong>On normal nodes:</strong> Collapse Group, Delete Node.</li>
+</ul>
+<p>
+    The context menu does <strong>not</strong> appear for the Side Panel node.
+</p>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1618,7 +1676,7 @@ Mutation: state.maya_encounter_triggered = true</code></pre>
     <li>Export <strong>auto-saves your project</strong> before generating the ZIP, so your latest changes are always included.</li>
     <li>Links with <strong>unmet prerequisites</strong> are grayed out and non-clickable.</li>
     <li><strong>Action blocks</strong> with an unmet condition are disabled (or hidden with <code>hide</code>).</li>
-    <li><strong>Variable interpolation</strong> (<code>{var:state.name}</code>) is replaced with the current value in real time.</li>
+    <li><strong>Variable interpolation</strong> (<code>{print:state.name}</code>) is replaced with the current value in real time.</li>
     <li><strong>Images</strong> render with responsive sizing (<code>max-width: 100%</code>).</li>
 </ul>
 
@@ -1667,8 +1725,8 @@ Mutation: state.maya_encounter_triggered = true</code></pre>
 
 <h3>Variable Interpolation</h3>
 <p>
-    Any <code>{var:state.name}</code> in your passage text is replaced with the variable's current value.
-    If the variable doesn't exist, the original <code>{var:state.name}</code> placeholder is shown literally.
+    Any <code>{print:state.name}</code> in your passage text is replaced with the variable's current value.
+    If the variable doesn't exist, the original <code>{print:state.name}</code> placeholder is shown literally.
 </p>
 </section>
 
@@ -1720,7 +1778,7 @@ A magic sword gleams in the shop window.
 {elseif: state.gold >= 50}
 You don't have enough for the sword, but you spot a decent dagger.
 {else}
-You only have {var:state.gold} gold pieces. The sword costs 100.
+You only have {print:state.gold} gold pieces. The sword costs 100.
 {endif}</code></pre>
 
 <pre><code>{if: state.has_map == true}
@@ -1735,7 +1793,7 @@ The forest stretches in every direction. You're lost.
     great for preparing arrays, counters, or defaults that the rest of the passage reads while re-rendering:
 </p>
 <pre><code>{init}{set: state.items = ["sword", "shield"]}{set: temp.i = 0}{endinit}
-{while: temp.i &lt; state.items.size}{var: state.items[temp.i]} {set: temp.i += 1}{endwhile}</code></pre>
+{while: temp.i &lt; state.items.size}{print: state.items[temp.i]} {set: temp.i += 1}{endwhile}</code></pre>
 <p>
     Re-renders of the same passage (after a mutation, without leaving it) do <strong>not</strong> re-run <code>{init}</code>;
     the setup only applies on a fresh entry. Use <code>temp</code> for scratch counters — it is never saved and is
@@ -1745,7 +1803,7 @@ The forest stretches in every direction. You're lost.
     Repeat blocks of text. <code>{while: cond}...{endwhile}</code> runs 0+ times, <code>{do}...{while: cond}</code> runs 1+ times,
     and <code>{for: init; cond; update}...{endfor}</code> is the C-style loop:
 </p>
-<pre><code>{for: temp.i = 0; temp.i &lt; 3; temp.i += 1}{var: temp.i}{endfor}</code></pre>
+<pre><code>{for: temp.i = 0; temp.i &lt; 3; temp.i += 1}{print: temp.i}{endfor}</code></pre>
 <p>
     Renders as <code>012</code>. <code>{break}</code> exits the innermost loop, <code>{continue}</code> skips to the next
     iteration, and every loop stops after 1000 iterations as a safety guard.
@@ -1754,8 +1812,8 @@ The forest stretches in every direction. You're lost.
 <div class="warn">
     <strong>Two different <code>{...}</code> syntaxes — do not confuse them:</strong>
     <ul>
-        <li><strong>Display interpolation</strong> — <code>{var:state.name}</code> — use this inside your story text to show a variable's current value.
-            Example: <code>You have {var:state.gold} gold.</code> renders as <em>"You have 200 gold."</em></li>
+        <li><strong>Display interpolation</strong> — <code>{print:state.name}</code> — use this inside your story text to show a variable's current value.
+            Example: <code>You have {print:state.gold} gold.</code> renders as <em>"You have 200 gold."</em></li>
         <li style="margin-top:8px;"><strong>Conditional blocks</strong> — <code>{if: condition}...{elseif:}...{else}...{endif}</code> —
             must use <code>state.</code> prefix on variables inside the condition expression.
             The <code>{else}</code> branch is optional. Nesting and chained <code>{elseif:}</code> are supported.</li>
@@ -1847,7 +1905,7 @@ state.has_key = true; notify("You found a rusty key under the mat.")</code></pre
     The side panel is ideal for displaying persistent information that should always be visible to the player:
 </p>
 <ul>
-    <li><strong>Player stats</strong> — health, gold, energy, etc. (using <code>{var:state.name}</code> interpolation).</li>
+    <li><strong>Player stats</strong> — health, gold, energy, etc. (using <code>{print:state.name}</code> interpolation).</li>
     <li><strong>Inventory</strong> — a list of items the player has collected.</li>
     <li><strong>Story log</strong> — current objective, location, or lore.</li>
     <li><strong>Status effects</strong> — active buffs, debuffs, or quest tracking.</li>
@@ -1874,6 +1932,63 @@ state.has_key = true; notify("You found a rusty key under the mat.")</code></pre
 </section>
 
 <!-- ============================================================ -->
+<section id="setup-node">
+<h2>Setup Node</h2>
+<p>
+    Every project automatically includes a special node with slug <code>setup</code> and title <strong>"Setup"</strong>.
+    Its <code>{set: setup.x = ...}</code> directives run <strong>once at boot</strong>, before the first render,
+    to populate the immutable <strong>setup</strong> constants scope (see
+    <a href="#setup-constants" style="color:var(--accent);">Setup Constants</a>).
+</p>
+
+<h3>Purpose</h3>
+<p>
+    The setup node is the authoring home for game-wide constants that are identical on every playthrough:
+</p>
+<ul>
+    <li><strong>Balance values</strong> — max HP, shop prices, damage tables.</li>
+    <li><strong>Catalogs</strong> — item definitions, outfits, NPC name pools, lookup tables.</li>
+    <li><strong>Metadata</strong> — author name, subtitle, content warnings.</li>
+</ul>
+
+<h3>Auto-Creation</h3>
+<p>
+    The <code>setup</code> node is automatically created (mirroring the <code>side_panel</code> node):
+</p>
+<ul>
+    <li>When you first load the editor.</li>
+    <li>After loading any saved project (if it doesn't already exist).</li>
+</ul>
+<p>
+    It appears on the canvas like any other node, marked as a utility node and placed in the
+    <code>side_panel</code> group. You can edit its title and content like any other node.
+</p>
+
+<h3>Boot Behavior</h3>
+<p>
+    At game start, the setup node's text is processed <strong>once</strong>: its <code>{set:}</code>, <code>{if:}</code>,
+    loops, and <code>{include:}</code> directives execute, and the resulting <code>setup.*</code> values are deep-frozen.
+    Output text is discarded — the node never renders in-game. Keep it mutation-only:
+    <code>{wait:}</code>, <code>{live:}</code>, <code>{action:}</code>, and forms are inert or ill-advised there.
+</p>
+<pre><code>{set: setup.MAX_HP = 100}
+{set: setup.PRICE_POTION = 25}
+{set: setup.item_catalog = [
+    { name: "Skirt", price: 80 },
+    { name: "Coat",  price: 150 }
+]}</code></pre>
+
+<h3>Reserved &amp; Immutable</h3>
+<p>
+    The <code>setup</code> slug is reserved: the node can never be the start node, it is exempt from
+    dead-end/orphan validation (like other utility nodes), and you should not link to it as content.
+    After boot, <code>setup</code> is deep-frozen — runtime assignments like
+    <code>{set: setup.MAX_HP = 50}</code> are ignored (with a console warning), and the scope is never
+    written into save data.
+</p>
+</section>
+
+<!-- ============================================================ -->
 <section id="inline-mutations">
 <h2>Inline Mutations</h2>
 <p>
@@ -1884,7 +1999,7 @@ state.has_key = true; notify("You found a rusty key under the mat.")</code></pre
 
 <h3>Syntax</h3>
 <pre><code>The time is {set: state.time_text = "Morning"}.
-The sun rises over the horizon. Time: {var:state.time_text}</code></pre>
+The sun rises over the horizon. Time: {print:state.time_text}</code></pre>
 
 <h3>Examples</h3>
 <ul>
@@ -1903,7 +2018,7 @@ The sun rises over the horizon. Time: {var:state.time_text}</code></pre>
 <p>
     Inline mutations execute during the directive pass (<code>processDirectives</code>), <strong>before</strong> HTML escaping,
     variable interpolation, and link rendering. This means you can set a variable
-    and immediately reference it via <code>{var:state.x}</code> in the same passage.
+    and immediately reference it via <code>{print:state.x}</code> in the same passage.
 </p>
 
 <h3>Caveats</h3>
@@ -1915,7 +2030,7 @@ The sun rises over the horizon. Time: {var:state.time_text}</code></pre>
 </ul>
 
 <div class="tip">
-    <strong>Tip:</strong> Combine inline mutations with <code>{var:state.x}</code> interpolation for dynamic content
+    <strong>Tip:</strong> Combine inline mutations with <code>{print:state.x}</code> interpolation for dynamic content
     that updates based on calculations or expressions — all without needing separate choice/action entries.
 </div>
 </section>
@@ -1965,7 +2080,7 @@ Everything goes dark...
     <li><strong>Each block</strong> is a single item: the entire content fades in as one piece.</li>
     <li><strong>Conditional blocks</strong> (<code>{if:}...{endif}</code>) are processed before wait blocks, so you can use conditions to control which sequences play.</li>
     <li><strong>Markdown syntax</strong> (images, bold, italic, links) works inside wait blocks.</li>
-    <li><strong>Variable interpolation</strong> (<code>{var:state.x}</code>) works inside wait blocks.</li>
+    <li><strong>Variable interpolation</strong> (<code>{print:state.x}</code>) works inside wait blocks.</li>
 </ul>
 
 <h3>Navigation During Sequences</h3>
@@ -2037,10 +2152,10 @@ The dream is already fading.</code></pre>
     The <code>{if:}</code> guard stops the countdown: once <code>state.bomb</code> reaches 0 the body
     does nothing, so the region simply stops ticking.
 </p>
-<pre><code>{live:1000}{if: state.bomb > 0}{set: state.bomb -= 1}{endif}⏱ {var:state.bomb}{endlive}</code></pre>
+<pre><code>{live:1000}{if: state.bomb > 0}{set: state.bomb -= 1}{endif}⏱ {print:state.bomb}{endlive}</code></pre>
 
 <h3>Typewriter</h3>
-<pre><code>{live:60}{set: state.typed = (state.typed||0) + 1}{var: state.sentence.substring(0, state.typed)}{endlive}</code></pre>
+<pre><code>{live:60}{set: state.typed = (state.typed||0) + 1}{print: state.sentence.substring(0, state.typed)}{endlive}</code></pre>
 
 <h3>Timed Transition</h3>
 <pre><code>{live:1000}{if: state.bomb <= 0}{redirect: boom}{endif}{endlive}</code></pre>
@@ -2089,7 +2204,7 @@ The dream is already fading.</code></pre>
 
 <h3>Rules</h3>
 <ul>
-    <li>Cell content is normal markup — <code>{var:}</code>, bold/italic, links, <code>{img:}</code>, <code>{dialogue:}</code>, nested <code>{bar:}</code> all work.</li>
+    <li>Cell content is normal markup — <code>{print:}</code>, bold/italic, links, <code>{img:}</code>, <code>{dialogue:}</code>, nested <code>{bar:}</code> all work.</li>
     <li>A <code>{bar:}</code> inside a <code>{live:}</code> region re-evaluates every tick, so stat bars stay live.</li>
     <li>Put each tag on its own line (no blank lines inside a table) so cells join without stray <code>&lt;br&gt;</code>s.</li>
     <li>Put <code>{table:}</code> at the start of its own paragraph — it renders as a clean block.</li>
@@ -2215,11 +2330,6 @@ The dream is already fading.</code></pre>
     This visual distinction lets players see which choices are available and which are locked.
 </p>
 </section>
-
-<hr>
-<p style="color:#666; font-size:0.85rem; text-align:center;">
-    NodeFable &mdash; Branching Narrative Game Editor
-</p>
 
 </div>
 

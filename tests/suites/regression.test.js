@@ -15,8 +15,8 @@ function freshGame() {
 const ctx = freshGame();
 const g = ctx.game;
 
-test('var interpolation (walker + renderContent two-pass)', () => {
-    const out = g.renderContent(g.processDirectives('gold={var: state.gold}'), []);
+test('print interpolation (walker + renderContent two-pass)', () => {
+    const out = g.renderContent(g.processDirectives('gold={print: state.gold}'), []);
     if (out !== '<p>gold=10</p>') throw new Error('got: ' + out);
 });
 
@@ -39,7 +39,7 @@ test('unset removes var', () => {
 });
 
 test('while loop sums', () => {
-    const out = g.renderContent(g.processDirectives('{set: state.i = 0}{set: state.sum = 0}{while: state.i < 4}{set: state.sum += state.i}{set: state.i += 1}{endwhile}sum={var: state.sum}'), []);
+    const out = g.renderContent(g.processDirectives('{set: state.i = 0}{set: state.sum = 0}{while: state.i < 4}{set: state.sum += state.i}{set: state.i += 1}{endwhile}sum={print: state.sum}'), []);
     if (out !== '<p>sum=6</p>') throw new Error('got: ' + out);
 });
 
@@ -73,8 +73,21 @@ test('include limit guards', () => {
 });
 
 test('renderContent produces HTML (smoke)', () => {
-    const html = g.renderContent(g.processDirectives('hello {var: state.gold}'), []);
+    const html = g.renderContent(g.processDirectives('hello {print: state.gold}'), []);
     if (html !== '<p>hello 15</p>') throw new Error('got: ' + html);
+});
+
+test('print: expression arithmetic + string build', () => {
+    g.state.a = 5; g.state.b = 7;
+    const r = g.renderContent(g.processDirectives('{print: state.a + state.b}|{print: state.a + 6}|{print: "Gold: " + (state.b - 2)}'), []);
+    if (r !== '<p>12|11|Gold: 5</p>') throw new Error('got: ' + r);
+});
+
+test('print: whole-object/undefined renders literal, never [object Object]', () => {
+    g.state.missingObj = { junk: 1 };
+    const r = g.renderContent(g.processDirectives('{print: state.missing.x}|{print: state.missingObj}'), []);
+    if (r.includes('[object Object]')) throw new Error('must not render [object Object]: ' + r);
+    if (!r.includes('{print: state.missing.x}')) throw new Error('undefined must render literal: ' + r);
 });
 
 module.exports = { run() { return summary(); } };

@@ -25,6 +25,7 @@ class NodeData(BaseModel):
     on_enter: Optional[OnEnter] = Field(None, description="Auto-redirect on entering this node")
     is_start: bool = Field(False, description="If true, this node is the starting point of the game")
     is_utility: bool = Field(False, description="If true, this node is content-only, spliced via {include:}, and excluded from reachability validation")
+    is_function: bool = Field(False, description="This node is a catalogue of {fn:} definitions; excluded from navigation and validation")
     group: str = Field("side_panel", description="The group this node belongs to")
 
 class GroupSlugInfo(BaseModel):

@@ -50,6 +50,10 @@ const game = {
     helper: null,
     _bootSetup: false,
     _helpersInstalled: false,
+    _functions: {},
+    _fnDepth: 0,
+    _fnReturn: undefined,
+    _inFn: false,
 
     init(data) {
         this._installHelpers();
@@ -205,6 +209,12 @@ const game = {
             if (n.id === 'side_panel') this.sidePanelNodeId = n.id;
         }
 
+        // Register function catalogues into a global name-index before the setup
+        // node boots, so boot-time directives can call {fn:} helpers.
+        for (const n of data.nodes) {
+            if (n.is_function && typeof n.text === 'string') this._registerFnCatalogue(n.text);
+        }
+
         // Build the immutable `setup` scope before the first render: seed from
         // the saved setup constants, then run the reserved `setup` node (which may
         // add/replace), then deep-freeze.
@@ -219,7 +229,10 @@ const game = {
         this.setup = this._freezeSetup(this.setup);
 
         const nodeIds = Object.keys(this.nodes);
-        const mainNodeIds = nodeIds.filter(id => id !== 'side_panel' && id !== 'setup');
+        const mainNodeIds = nodeIds.filter(id =>
+            id !== 'side_panel' && id !== 'setup' &&
+            !(this.nodes[id] && this.nodes[id].is_function)
+        );
         const explicitStart = mainNodeIds.find(id => this.nodes[id].is_start === true);
         this.startNode = explicitStart || (mainNodeIds.length > 0 ? mainNodeIds[0] : (nodeIds.length > 0 ? nodeIds[0] : null));
 
@@ -673,6 +686,19 @@ const game = {
                 if (am) { this._renderOnlyWarn('audio'); i += am[0].length; continue; }
                 const im = rest.match(/^\{include:[^}]*\}/i);
                 if (im) { this._renderOnlyWarn('include'); i += im[0].length; continue; }
+                if (rest.startsWith('{fn:') || rest.startsWith('{endfn}')) {
+                    const fe = rest.match(/^\{fn:?\s*[^}]*\}/i);
+                    if (fe) { this._renderOnlyWarn('fn'); i += fe[0].length; continue; }
+                    if (rest.startsWith('{endfn}')) { this._renderOnlyWarn('fn'); i += 7; continue; }
+                }
+                if (rest.startsWith('{return')) {
+                    const rem = this._findDirectiveEnd(text, i, rest.match(/^\{return:?/i)[0].length);
+                    if (rem) { this._renderOnlyWarn('return'); i = rem.end; continue; }
+                }
+                if (rest.startsWith('{call:')) {
+                    const cem = this._findDirectiveEnd(text, i, '{call:'.length);
+                    if (cem) { this._renderOnlyWarn('call'); i = cem.end; continue; }
+                }
                 if (rest.startsWith('{action:')) {
                     const end = text.indexOf('{endaction}', i);
                     if (end !== -1) { this._renderOnlyWarn('action'); i = end + 11; continue; }
@@ -767,6 +793,26 @@ const game = {
                     continue;
                 }
             }
+            if (rest.startsWith('{return')) {
+                const pm = this._findDirectiveEnd(text, i, rest.match(/^\{return:?/i)[0].length);
+                if (pm) { this._fnReturn = this._evalValue(pm.expr); i = pm.end; return { text: out, signal: 'fnreturn' }; }
+            }
+            if (rest.startsWith('{call:')) {
+                const cm = this._findDirectiveEnd(text, i, '{call:'.length);
+                if (cm) {
+                    const parts = this._splitArgs(cm.expr);
+                    const name = (parts[0] || '').trim();
+                    const args = parts.slice(1).map(a => this._evalValue(a.trim()));
+                    const val = this._callFunction(name, args);
+                    if (!(val === undefined || (val !== null && typeof val === 'object' && !Array.isArray(val)))) {
+                        const idx = this._varValues.length;
+                        this._varValues.push(Array.isArray(val) ? val.join(', ') : String(val));
+                        out += '\u0000nfvar_' + idx + '\u0000';
+                    }
+                    i = cm.end;
+                    continue;
+                }
+            }
             if ((m = rest.match(/^\{unset:\s*((?:state|temp)\.\w+|temp)\}/))) {
                 const target = m[1].trim();
                 if (target === 'temp') {
@@ -789,7 +835,7 @@ const game = {
                     continue;
                 }
                 this._includeCount++;
-                if (!this._inInit) {
+                if (!this._inInit && !this._inFn) {
                     this._includedChoices.push(...(target.choices || []));
                 }
                 const r = this._processDirectives(target.text || '', inLoop);
@@ -797,17 +843,23 @@ const game = {
                 if (r.signal) return { text: out, signal: r.signal };
                 continue;
             }
-            if ((m = rest.match(/^\{var:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/))) {
-                const val = this._evalValue(m[1]);
-                if (val === undefined || (val !== null && typeof val === 'object' && !Array.isArray(val))) {
-                    out += m[0];
-                } else {
-                    const idx = this._varValues.length;
-                    this._varValues.push(Array.isArray(val) ? val.join(', ') : String(val));
-                    out += '\u0000nfvar_' + idx + '\u0000';
+            if (rest.startsWith('{print')) {
+                const open = rest.match(/^\{print:?/i);
+                if (open) {
+                    const pm = this._findDirectiveEnd(text, i, open[0].length);
+                    if (pm) {
+                        const val = this._evalValue(pm.expr);
+                        if (val === undefined || (val !== null && typeof val === 'object' && !Array.isArray(val))) {
+                            out += text.slice(i, pm.end);
+                        } else {
+                            const idx = this._varValues.length;
+                            this._varValues.push(Array.isArray(val) ? val.join(', ') : String(val));
+                            out += '\u0000nfvar_' + idx + '\u0000';
+                        }
+                        i = pm.end;
+                        continue;
+                    }
                 }
-                i += m[0].length;
-                continue;
             }
             if (rest.startsWith('{for:')) {
                 const block = this._findForEnd(text, i);
@@ -941,6 +993,7 @@ const game = {
             out += r.text;
             if (r.signal === 'break') return out;
             if (r.signal === 'continue') continue;
+            if (r.signal === 'fnreturn') return r.text;
         }
         return out;
     },
@@ -954,6 +1007,7 @@ const game = {
             out += r.text;
             if (r.signal === 'break') return out;
             if (r.signal === 'continue') continue;
+            if (r.signal === 'fnreturn') return r.text;
         } while (this._evalBool(condition));
         return out;
     },
@@ -969,6 +1023,7 @@ const game = {
             if (r.signal === 'break') return out;
             this._evalMutation(update, (msg) => this.notify(msg));
             if (r.signal === 'continue') continue;
+            if (r.signal === 'fnreturn') return r.text;
         }
         return out;
     },
@@ -1202,8 +1257,8 @@ const game = {
         });
     },
 
-    _findSetEnd(text, i) {
-        let j = i + 5;
+    _findDirectiveEnd(text, i, openLen) {
+        let j = i + openLen;
         let depth = 0, quote = null;
         for (; j < text.length; j++) {
             const ch = text[j];
@@ -1215,11 +1270,74 @@ const game = {
             if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
             if (ch === '{') depth++;
             else if (ch === '}') {
-                if (depth === 0) return { expr: text.slice(i + 5, j).trim(), end: j + 1 };
+                if (depth === 0) return { expr: text.slice(i + openLen, j).trim(), end: j + 1 };
                 depth--;
             }
         }
         return null;
+    },
+
+    _findSetEnd(text, i) {
+        return this._findDirectiveEnd(text, i, 5);
+    },
+
+    _registerFnCatalogue(text) {
+        const headerRe = /\{fn:?\s*([A-Za-z_][\w$]*)((?:,\s*[A-Za-z_][\w$]*)*)\}/i;
+        let from = 0, guard = 0;
+        while (guard++ < 500) {
+            const hm = text.slice(from).match(headerRe);
+            if (!hm) break;
+            const headerAbs = from + hm.index;
+            const headerEnd = headerAbs + hm[0].length;
+            const endTag = text.indexOf('{endfn}', headerEnd);
+            if (endTag === -1) break;
+            const name = hm[1];
+            const params = hm[2] ? hm[2].trim().split(/\s*,\s*/).filter(Boolean) : [];
+            const body = text.slice(headerEnd, endTag);
+            if (this._functions[name]) console.warn('Function redefined, last wins: ' + name);
+            this._functions[name] = { params, body };
+            from = endTag + 7;
+        }
+    },
+
+    _splitArgs(s) {
+        const parts = []; let cur = '', depth = 0, quote = null;
+        for (let i = 0; i < s.length; i++) {
+            const c = s[i];
+            if (quote) { cur += c;
+                if (c === '\\') { i++; if (i < s.length) cur += s[i]; continue; }
+                if (c === quote) quote = null;
+                continue; }
+            if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue; }
+            if (c === '{' || c === '(' || c === '[') depth++;
+            else if (c === '}' || c === ')' || c === ']') depth--;
+            if (c === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; continue; }
+            cur += c;
+        }
+        if (cur.trim() !== '') parts.push(cur.trim());
+        return parts;
+    },
+
+    _callFunction(name, args) {
+        if (this._fnDepth >= 50) { this.notify('Function recursion limit exceeded.'); return undefined; }
+        const fn = this._functions[name];
+        if (!fn) { console.warn('Unknown function: ' + name); return undefined; }
+        this._fnDepth++; this._inFn = true;
+        const savedTemp = this.temp, savedFnReturn = this._fnReturn;
+        this.temp = {};
+        for (let p = 0; p < fn.params.length; p++) this.temp[fn.params[p]] = args[p];
+        this._fnReturn = undefined;
+        let ret = undefined;
+        try {
+            this._processDirectives(fn.body, false);
+            ret = this._fnReturn;
+        } finally {
+            this.temp = savedTemp;
+            this._fnReturn = savedFnReturn;
+            this._inFn = false;
+            this._fnDepth--;
+        }
+        return ret;
     },
 
     _norm(expr) {
@@ -1228,17 +1346,17 @@ const game = {
 
     _evalBool(expr) {
         try {
-            return !!new Function('state', 'setup', 'helper', 'temp', 'try { return ' + this._norm(expr) + '; } catch(e) { return false; }')(this.state, this.setup, this.helper, this.temp);
+            return !!new Function('state', 'setup', 'helper', 'temp', 'call', 'try { return ' + this._norm(expr) + '; } catch(e) { return false; }')(this.state, this.setup, this.helper, this.temp, (...r) => this._callFunction(r[0], r.slice(1)));
         } catch { return false; }
     },
 
     _evalMutation(expr, notify) {
-        try { new Function('state', 'setup', 'helper', 'notify', 'temp', this._norm(expr))(this.state, this.setup, this.helper, notify, this.temp); }
+        try { new Function('state', 'setup', 'helper', 'notify', 'temp', 'call', this._norm(expr))(this.state, this.setup, this.helper, notify, this.temp, (...r) => this._callFunction(r[0], r.slice(1))); }
         catch (e) { console.warn('Mutation failed:', e); }
     },
 
     _evalValue(expr) {
-        try { return new Function('state', 'setup', 'helper', 'temp', 'return ' + this._norm(expr))(this.state, this.setup, this.helper, this.temp); }
+        try { return new Function('state', 'setup', 'helper', 'temp', 'call', 'return ' + this._norm(expr))(this.state, this.setup, this.helper, this.temp, (...r) => this._callFunction(r[0], r.slice(1))); }
         catch { return undefined; }
     },
 
@@ -1544,7 +1662,7 @@ const game = {
             const o = this._parseBarOptions(params);
             if (o.expr === null) return m;
             let value;
-            try { value = new Function('state', 'setup', 'helper', 'temp', 'return ' + this._norm(o.expr))(this.state, this.setup, this.helper, this.temp); }
+            try { value = new Function('state', 'setup', 'helper', 'temp', 'call', 'return ' + this._norm(o.expr))(this.state, this.setup, this.helper, this.temp, (...r) => this._callFunction(r[0], r.slice(1))); }
             catch { return m; }
             if (value === undefined || value === null) value = 0;
             else { value = Number(value); if (!isFinite(value)) return m; }

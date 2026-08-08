@@ -56,6 +56,7 @@ export function addGroup() {
         slug: 'portal_' + groupId,
         is_start: false,
         is_utility: false,
+        is_function: false,
         group: groupId,
         isPortal: true,
         portalGroupId: groupId,
@@ -363,6 +364,7 @@ export async function loadGroupFromPortal(portalNodeId) {
                 slug: node.id,
                 is_start: node.is_start || false,
                 is_utility: node.is_utility || false,
+                is_function: node.is_function || false,
                 group: node.group || groupId
             };
             state.slugToNodeId[node.id] = nodeId;
@@ -578,6 +580,7 @@ export function collapseGroup(groupId) {
             on_enter: data.on_enter || null,
             is_start: data.is_start || false,
             is_utility: data.is_utility || false,
+            is_function: data.is_function || false,
             group: data.group || groupId,
             x: drawflowNode.pos_x,
             y: drawflowNode.pos_y
@@ -679,6 +682,7 @@ export function createPortalNode(group, posX, posY) {
             slug: 'portal_' + group.id,
             is_start: false,
             is_utility: false,
+            is_function: false,
             group: group.id,
             isPortal: true,
             portalGroupId: group.id,

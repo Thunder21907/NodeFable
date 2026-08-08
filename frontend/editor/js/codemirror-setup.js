@@ -14,8 +14,8 @@ CodeMirror.defineMode('nodefable', function (config) {
             if (stream.match(/\{redirect:[^}]*\}/i)) return 'keyword';
             // {random:...}
             if (stream.match(/^\{random:\d+(?:,\d+)?\}/i)) return 'builtin';
-            // {var:state.var} / {var state.var} / array access / bracket-chain field access: state.clients[state.dayW].name
-            if (stream.match(/\{var:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/i)) return 'variable-2';
+            // {print:state.var} / {print state.var} / array access / bracket-chain field access: state.clients[state.dayW].name
+            if (stream.match(/\{print:?\s*((?:state|temp|setup)\.\w+(?:\[[^\]]+\])?(?:\.[A-Za-z_][\w$]*)*)\}/i)) return 'variable-2';
             // {textfield:...} / {checkbox:...} / {radiogroup} / {endradiogroup} / {radiobutton:...}
             if (stream.match(/\{textfield:[^}]*\}/i)) return 'keyword';
             if (stream.match(/^\{checkbox:[^}]*\}/i)) return 'keyword';
@@ -45,6 +45,10 @@ CodeMirror.defineMode('nodefable', function (config) {
             // {action:...} / {endaction}
             if (stream.match(/\{action:[^}]*\}/i)) return 'keyword';
             if (stream.match(/\{endaction\}/i)) return 'keyword';
+            // {fn: name, p1} / {endfn} / {return:...} / {call:...}
+            if (stream.match(/^\{fn:?\s*[^}]*\}/i)) return 'keyword';
+            if (stream.match(/^\{endfn\}/i)) return 'keyword';
+            if (stream.match(/^\{(return|call):\s*[^}]*\}/i)) return 'keyword';
             // {live:...} / {endlive}
             if (stream.match(/^\{live:[^}]*\}/i)) return 'keyword';
             if (stream.match(/^\{endlive\}/i)) return 'keyword';
@@ -153,9 +157,10 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
         const keywords = ['if:', 'elseif:', 'else', 'endif', 'while:', 'endwhile', 'do', 'break', 'continue', 'init', 'endinit', 'for:', 'endfor', 'unset:',
             'set:', 'redirect:', 'random:',
             'textfield:', 'textarea:', 'number:', 'checkbox:', 'dropdown:', 'radiogroup', 'radiobutton:', 'endradiogroup',
-            'var:', 'wait:', 'endwait', 'dialogue:', 'enddialogue', 'img:', 'video:',
+            'print:', 'wait:', 'endwait', 'dialogue:', 'enddialogue', 'img:', 'video:',
             'audio:', 'action:', 'endaction', 'include:', 'live:', 'endlive',
             'table:', 'tr:', 'td:', 'bar:', 'endtable', 'endtr', 'endtd',
+            'fn:', 'endfn', 'return:', 'call:',
             'true', 'false', 'notify(', 'game.newGame()'];
         for (const kw of keywords) {
             if (kw.startsWith(prefix)) {

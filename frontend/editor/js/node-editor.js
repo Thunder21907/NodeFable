@@ -3,7 +3,7 @@
 import { state, ensureNodeData, getNodeTitleBySlug, getNodeSlug, generateUniqueSlug, getNodeIdBySlug } from './state.js';
 import { snapshotState } from './history.js';
 import { escapeHtml, escapeRegex, showIdError, hideIdError } from './ui-utils.js';
-import { getEditorValue, setEditorValue } from './codemirror-setup.js';
+import { getEditorValue, setEditorValue, insertAtCursor } from './codemirror-setup.js';
 import { openGroupEditor, populateGroupDropdown, _setupNodeCollapseButton, removeNodeFromGroups } from './group-manager.js';
 
 export function closePassageEditor() {
@@ -47,12 +47,15 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
 
     const isStartCheckbox = document.getElementById('passage-is-start');
     const isUtilityCheckbox = document.getElementById('passage-is-utility');
+    const isFnCheckbox = document.getElementById('passage-is-fn');
     if (data.slug === 'side_panel') {
         isStartCheckbox.style.display = 'none';
         if (isUtilityCheckbox) isUtilityCheckbox.style.display = 'none';
+        if (isFnCheckbox) isFnCheckbox.style.display = 'none';
     } else {
         isStartCheckbox.style.display = 'flex';
         if (isUtilityCheckbox) isUtilityCheckbox.style.display = 'flex';
+        if (isFnCheckbox) isFnCheckbox.style.display = 'flex';
         if (isStartCheckbox.checked !== !!data.is_start) {
             isStartCheckbox.checked = !!data.is_start;
         }
@@ -64,10 +67,15 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
     // Populate group dropdown
     populateGroupDropdown();
 
+    if (isFnCheckbox) isFnCheckbox.checked = !!data.is_function;
+
     renderChoices(nid);
     renderOnEnter(nid);
+    renderFnList(nid);
     updateStartBadgeOnCanvas(nid);
     updateUtilityBadgeOnCanvas(nid);
+    updateFnBadgeOnCanvas(nid);
+    syncFnSectionVisibility();
 }
 
 export function saveCurrentContent(nodeId) {
@@ -79,6 +87,8 @@ export function saveCurrentContent(nodeId) {
     nodeData.text = content;
     const isUtilityCheckbox = document.getElementById('passage-is-utility');
     if (isUtilityCheckbox) nodeData.is_utility = isUtilityCheckbox.checked;
+    const isFnCheckbox = document.getElementById('passage-is-fn');
+    if (isFnCheckbox) nodeData.is_function = isFnCheckbox.checked;
     const slugInput = document.getElementById('passage-id');
     if (slugInput) {
         const newSlug = slugInput.value.trim();
@@ -151,8 +161,12 @@ export function updateCurrentNode() {
     }
     const isUtilityCheckbox = document.getElementById('passage-is-utility');
     if (isUtilityCheckbox) nodeData.is_utility = isUtilityCheckbox.checked;
+    const isFnCheckbox = document.getElementById('passage-is-fn');
+    if (isFnCheckbox) nodeData.is_function = isFnCheckbox.checked;
     updateStartBadgeOnCanvas(state.selectedNodeId);
     updateUtilityBadgeOnCanvas(state.selectedNodeId);
+    updateFnBadgeOnCanvas(state.selectedNodeId);
+    syncFnSectionVisibility();
 
     // Sync group from dropdown
     const groupSelect = document.getElementById('passage-group');
@@ -205,7 +219,7 @@ export function addNode() {
             'New Node'
         );
         const slug = generateUniqueSlug('new_node');
-        state.nodesData[nodeId] = { title: 'New Node', text: '', choices: [], slug: slug, is_start: false, is_utility: false, group: '' };
+        state.nodesData[nodeId] = { title: 'New Node', text: '', choices: [], slug: slug, is_start: false, is_utility: false, is_function: false, group: '' };
         state.slugToNodeId[slug] = nodeId;
         _setupNodeCollapseButton(nodeId);
         console.log("Created new node:", nodeId, "slug:", slug);
@@ -314,6 +328,64 @@ export function updateUtilityBadgeOnCanvas(nodeId) {
     const nodeEl = document.getElementById('node-' + nodeId);
     if (!nodeEl) return;
     nodeEl.classList.toggle('node-utility', !!(state.nodesData[nodeId] && state.nodesData[nodeId].is_utility));
+}
+
+export function updateFnBadgeOnCanvas(nodeId) {
+    const nodeEl = document.getElementById('node-' + nodeId);
+    if (!nodeEl) return;
+    nodeEl.classList.toggle('node-function', !!(state.nodesData[nodeId] && state.nodesData[nodeId].is_function));
+}
+
+export function syncFnSectionVisibility() {
+    const data = state.nodesData[state.selectedNodeId];
+    const isFn = !!(data && data.is_function);
+    const fnSection = document.getElementById('fn-section');
+    const choicesH3 = document.getElementById('choices-h3');
+    const choicesList = document.getElementById('choices-list');
+    const onenterSection = document.getElementById('onenter-section');
+    if (fnSection) fnSection.classList.toggle('is-hidden', !isFn);
+    if (choicesH3) choicesH3.style.display = isFn ? 'none' : '';
+    if (choicesList) choicesList.style.display = isFn ? 'none' : '';
+    if (onenterSection) onenterSection.style.display = isFn ? 'none' : '';
+}
+
+export function toggleFnNode(checked) {
+    if (state.selectedNodeId == null) return;
+    state.nodesData[state.selectedNodeId].is_function = checked;
+    updateFnBadgeOnCanvas(state.selectedNodeId);
+    syncFnSectionVisibility();
+}
+
+function parseFnCatalogue(text) {
+    const out = [];
+    const headerRe = /\{fn:?\s*([A-Za-z_][\w$]*)((?:,\s*[A-Za-z_][\w$]*)*)\}/ig;
+    let m;
+    while ((m = headerRe.exec(text || '')) !== null) {
+        const params = m[2] ? m[2].trim().split(/\s*,\s*/).filter(Boolean) : [];
+        out.push({ name: m[1], params });
+    }
+    return out;
+}
+
+export function renderFnList(nodeId) {
+    const container = document.getElementById('fn-list');
+    const data = state.nodesData[nodeId];
+    const fns = data ? parseFnCatalogue(data.text || '') : [];
+    if (fns.length === 0) {
+        container.innerHTML = '<p class="text-muted-sm">No {fn:} blocks found. Use the button or write `{fn: name, p1} … {endfn}` in the body.</p>';
+        return;
+    }
+    container.innerHTML = fns.map(fn =>
+        '<div class="choice-card" data-node-id="' + nodeId + '"><div class="choice-header"><span class="choice-target">→ ' +
+        escapeHtml(fn.name) + '</span></div><div class="choice-link-text"><em>' +
+        escapeHtml(fn.params.length ? '(params) ' + fn.params.join(', ') : '(no params)') +
+        '</em></div></div>'
+    ).join('');
+}
+
+export function insertFnBlock() {
+    insertAtCursor('{fn: name, arg1, arg2}\n{return: }\n{endfn}\n');
+    if (state.selectedNodeId != null) renderFnList(state.selectedNodeId);
 }
 
 export function renderChoices(nodeId) {

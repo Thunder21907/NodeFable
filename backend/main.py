@@ -8,6 +8,7 @@ import io
 import zipfile
 import re
 import shutil
+import urllib.parse
 from typing import Dict, List, Optional
 
 from backend.schemas.project import ProjectSchema, NodeData, VariableValue, GroupSlugInfo
@@ -33,7 +34,20 @@ class SaveRequest(BaseModel):
 def safe_name(name: str) -> str:
     name = name.replace('/', '_').replace('\\', '_')
     name = re.sub(r'[^\w\s\-.]', '', name)
-    return name.strip()
+    name = name.strip().strip('.').strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Invalid project name")
+    return name
+
+
+def _atomic_write_json(path: str, data: dict):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+    os.replace(tmp_path, path)
 
 
 # ---------------------------------------------------------------------------
@@ -175,15 +189,13 @@ def _migrate_legacy_project(name: str):
         for n in side_panel_nodes:
             n["group"] = "side_panel"
         gpath = _group_path(name, "side_panel")
-        os.makedirs(os.path.dirname(gpath), exist_ok=True)
-        with open(gpath, "w", encoding="utf-8") as f:
-            json.dump({
-                "group_id": "side_panel",
-                "label": "Side Panel",
-                "node_count": len(side_panel_nodes),
-                "slug_ids": _build_slug_info(side_panel_nodes),
-                "nodes": side_panel_nodes
-            }, f, indent=4)
+        _atomic_write_json(gpath, {
+            "group_id": "side_panel",
+            "label": "Side Panel",
+            "node_count": len(side_panel_nodes),
+            "slug_ids": _build_slug_info(side_panel_nodes),
+            "nodes": side_panel_nodes
+        })
         groups.append({
             "id": "side_panel",
             "label": "Side Panel",
@@ -195,15 +207,13 @@ def _migrate_legacy_project(name: str):
         for n in other_nodes:
             n["group"] = "default"
         gpath = _group_path(name, "default")
-        os.makedirs(os.path.dirname(gpath), exist_ok=True)
-        with open(gpath, "w", encoding="utf-8") as f:
-            json.dump({
-                "group_id": "default",
-                "label": "Default",
-                "node_count": len(other_nodes),
-                "slug_ids": _build_slug_info(other_nodes),
-                "nodes": other_nodes
-            }, f, indent=4)
+        _atomic_write_json(gpath, {
+            "group_id": "default",
+            "label": "Default",
+            "node_count": len(other_nodes),
+            "slug_ids": _build_slug_info(other_nodes),
+            "nodes": other_nodes
+        })
         groups.append({
             "id": "default",
             "label": "Default",
@@ -218,8 +228,7 @@ def _migrate_legacy_project(name: str):
         "setup": {},
         "groups": groups
     }
-    with open(_manifest_path(name), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=4)
+    _atomic_write_json(_manifest_path(name), manifest)
 
     os.remove(src)
 
@@ -350,17 +359,15 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
     groups_list = []
     for gid, g_nodes in grouped.items():
         gpath = _group_path(safe, gid)
-        os.makedirs(os.path.dirname(gpath), exist_ok=True)
         serialized = [n.model_dump() if not isinstance(n, dict) else n for n in g_nodes]
         label = label_lookup.get(gid, gid.replace("_", " ").title())
-        with open(gpath, "w", encoding="utf-8") as f:
-            json.dump({
-                "group_id": gid,
-                "label": label,
-                "node_count": len(g_nodes),
-                "slug_ids": _build_slug_info(g_nodes),
-                "nodes": serialized
-            }, f, indent=4)
+        _atomic_write_json(gpath, {
+            "group_id": gid,
+            "label": label,
+            "node_count": len(g_nodes),
+            "slug_ids": _build_slug_info(g_nodes),
+            "nodes": serialized
+        })
         groups_list.append({
             "id": gid,
             "label": label,
@@ -393,14 +400,13 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
                 g_label = edata.get("label", "") or label
             else:
                 # New group — write an empty file once
-                with open(gpath, "w", encoding="utf-8") as nf:
-                    json.dump({
-                        "group_id": gid,
-                        "label": label,
-                        "node_count": 0,
-                        "slug_ids": [],
-                        "nodes": []
-                    }, nf, indent=4)
+                _atomic_write_json(gpath, {
+                    "group_id": gid,
+                    "label": label,
+                    "node_count": 0,
+                    "slug_ids": [],
+                    "nodes": []
+                })
                 g_node_count = 0
                 g_slug_ids = []
                 g_label = label
@@ -411,6 +417,15 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
                 "slug_ids": g_slug_ids
             })
 
+    if groups_meta is not None and os.path.isdir(_groups_dir(safe)):
+        valid_files = {os.path.basename(_group_path(safe, g["id"])) for g in groups_list if g.get("id")}
+        for fname in os.listdir(_groups_dir(safe)):
+            if fname.endswith(".json") and fname not in valid_files:
+                try:
+                    os.remove(os.path.join(_groups_dir(safe), fname))
+                except OSError:
+                    pass
+
     manifest = {
         "name": safe,
         "version": MANIFEST_VERSION,
@@ -420,8 +435,7 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
     }
     # Drop the redundant node_to_group field if it ever lingers in memory
     manifest.pop("node_to_group", None)
-    with open(_manifest_path(safe), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=4)
+    _atomic_write_json(_manifest_path(safe), manifest)
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +443,7 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
 # ---------------------------------------------------------------------------
 
 def _rewrite_asset_urls(obj: any, safe: str):
-    pattern = re.compile(r'/api/assets/' + re.escape(safe) + r'/([^)"\s,}]+)')
+    pattern = re.compile(r'/api/assets/[^/]+/([^)"\s,}]+)')
     def _walk(o):
         if isinstance(o, dict):
             for k, v in o.items():
@@ -443,13 +457,16 @@ def _rewrite_asset_urls(obj: any, safe: str):
     _walk(obj)
 
 
-def _build_story_html(project_data: dict) -> str:
+def _build_story_html(project_data: dict, base_href: Optional[str] = None) -> str:
     """Inject project data into template.html and inline CSS."""
     template_path = os.path.join(FRONTEND_DIR, "template.html")
     with open(template_path, "r", encoding="utf-8") as f:
         template = f.read()
 
-    story_json = json.dumps(project_data, indent=2)
+    if base_href:
+        template = template.replace("<head>", f'<head>\n<base href="{base_href}">', 1)
+
+    story_json = json.dumps(project_data, indent=2).replace("</", "<\\/")
     template = template.replace(
         '// __STORY_DATA_PLACEHOLDER__',
         'const STORY_DATA = ' + story_json + ';'
@@ -490,6 +507,8 @@ async def save_project(req: SaveRequest):
 
         _save_manifest_and_groups(name, variables, nodes, groups_meta, setup)
         return {"status": "ok", "name": name}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save project: {str(e)}")
 
@@ -611,7 +630,7 @@ async def upload_asset(name: str, file: UploadFile = File(...), folder: str = ""
     # If folder param provided, prepend it
     target_folder = folder.replace('\\', '/').strip('/') if folder else ""
     if target_folder:
-        target_dir = os.path.join(assets_dir, target_folder)
+        target_dir = _resolve_safe_asset_path(assets_dir, target_folder)
         os.makedirs(target_dir, exist_ok=True)
     else:
         target_dir = assets_dir
@@ -628,6 +647,14 @@ async def upload_asset(name: str, file: UploadFile = File(...), folder: str = ""
         raise HTTPException(status_code=500, detail=f"Failed to upload asset: {str(e)}")
 
 
+def _resolve_safe_asset_path(assets_dir: str, rel_path: str) -> str:
+    base = os.path.realpath(assets_dir)
+    target = os.path.realpath(os.path.join(base, rel_path.strip('/')))
+    if target != base and not target.startswith(base + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    return target
+
+
 class FolderCreateRequest(BaseModel):
     path: str
 
@@ -636,7 +663,7 @@ class FolderCreateRequest(BaseModel):
 async def create_folder(name: str, req: FolderCreateRequest):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
-    target = os.path.join(assets_dir, req.path.strip('/'))
+    target = _resolve_safe_asset_path(assets_dir, req.path)
     try:
         os.makedirs(target, exist_ok=True)
         return {"status": "ok", "path": req.path}
@@ -653,13 +680,17 @@ class RenameRequest(BaseModel):
 async def rename_asset(name: str, req: RenameRequest):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
-    old_path = os.path.normpath(os.path.join(assets_dir, req.path.strip('/')))
-    if not old_path.startswith(os.path.normpath(assets_dir)):
-        raise HTTPException(status_code=400, detail="Invalid path")
+    old_path = _resolve_safe_asset_path(assets_dir, req.path)
     if not os.path.exists(old_path):
         raise HTTPException(status_code=404, detail="Path not found")
-    parent = os.path.dirname(old_path)
-    new_path = os.path.join(parent, req.new_name)
+    if not req.new_name or '/' in req.new_name or '\\' in req.new_name:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    base = os.path.realpath(assets_dir)
+    parent_rel = os.path.relpath(os.path.dirname(old_path), base)
+    new_rel = req.new_name if parent_rel == "." else os.path.join(parent_rel, req.new_name)
+    new_path = _resolve_safe_asset_path(assets_dir, new_rel)
+    if new_path == base:
+        raise HTTPException(status_code=400, detail="Invalid path")
     if os.path.exists(new_path):
         raise HTTPException(status_code=409, detail="Target already exists")
     try:
@@ -678,10 +709,8 @@ class MoveRequest(BaseModel):
 async def move_asset(name: str, req: MoveRequest):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
-    src = os.path.normpath(os.path.join(assets_dir, req.from_path.strip('/')))
-    dst = os.path.normpath(os.path.join(assets_dir, req.to_path.strip('/')))
-    if not src.startswith(os.path.normpath(assets_dir)) or not dst.startswith(os.path.normpath(assets_dir)):
-        raise HTTPException(status_code=400, detail="Invalid path")
+    src = _resolve_safe_asset_path(assets_dir, req.from_path)
+    dst = _resolve_safe_asset_path(assets_dir, req.to_path)
     if not os.path.exists(src):
         raise HTTPException(status_code=404, detail="Source not found")
     if os.path.exists(dst):
@@ -703,10 +732,8 @@ class CopyRequest(BaseModel):
 async def copy_asset(name: str, req: CopyRequest):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
-    src = os.path.normpath(os.path.join(assets_dir, req.from_path.strip('/')))
-    dst = os.path.normpath(os.path.join(assets_dir, req.to_path.strip('/')))
-    if not src.startswith(os.path.normpath(assets_dir)) or not dst.startswith(os.path.normpath(assets_dir)):
-        raise HTTPException(status_code=400, detail="Invalid path")
+    src = _resolve_safe_asset_path(assets_dir, req.from_path)
+    dst = _resolve_safe_asset_path(assets_dir, req.to_path)
     if not os.path.exists(src):
         raise HTTPException(status_code=404, detail="Source not found")
     if os.path.exists(dst):
@@ -730,8 +757,8 @@ class DeleteRequest(BaseModel):
 async def delete_asset(name: str, filepath: str):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
-    target = os.path.normpath(os.path.join(assets_dir, filepath.strip('/')))
-    if not target.startswith(os.path.normpath(assets_dir)):
+    target = _resolve_safe_asset_path(assets_dir, filepath)
+    if target == os.path.realpath(assets_dir):
         raise HTTPException(status_code=400, detail="Invalid path")
     if not os.path.exists(target):
         raise HTTPException(status_code=404, detail="Path not found")
@@ -758,9 +785,10 @@ async def get_asset(name: str, filepath: str):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
     safe_path = filepath.strip('/')
-    target = os.path.normpath(os.path.join(assets_dir, safe_path))
-    if not target.startswith(os.path.normpath(assets_dir)):
-        raise HTTPException(status_code=400, detail="Invalid path")
+    target = _resolve_safe_asset_path(assets_dir, safe_path)
+    if not os.path.exists(target) and safe_path.startswith("assets/"):
+        alt_path = safe_path[len("assets/"):]
+        target = _resolve_safe_asset_path(assets_dir, alt_path)
     if not os.path.exists(target):
         raise HTTPException(status_code=404, detail="Asset not found")
     return FileResponse(target)
@@ -820,7 +848,12 @@ async def preview_project(name: str):
         "nodes": [n.model_dump() if not isinstance(n, dict) else n for n in nodes]
     }
 
-    template = _build_story_html(project_data)
+    _rewrite_asset_urls(project_data, safe)
+
+    template = _build_story_html(
+        project_data,
+        base_href=f"/api/assets/{urllib.parse.quote(safe)}/",
+    )
 
     preview_path = os.path.join(project_dir, "preview.html")
     with open(preview_path, "w", encoding="utf-8") as f:

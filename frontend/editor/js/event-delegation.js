@@ -49,6 +49,7 @@ import {
     aePaste
 } from './asset-explorer.js';
 import { ensureSidePanelNode, ensureSetupNode } from './graph-engine.js';
+import { api } from './api.js';
 
 let selectedLoadName = null;
 let contextMenuTargetId = null;
@@ -454,10 +455,7 @@ export function formatMtime(ts) {
 }
 
 export async function fetchSaves() {
-    const resp = await fetch('/api/saves');
-    if (!resp.ok) throw new Error('Failed to fetch saves');
-    const data = await resp.json();
-    return data.saves || [];
+    return await api.listSaves();
 }
 
 export function renderSaveList(saves) {
@@ -589,15 +587,7 @@ export async function confirmSave() {
     showLoader('Saving...');
     try {
         const payload = _buildSavePayload(name);
-        const response = await fetch('/api/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.detail || 'Save failed');
-        }
+        await api.saveProject(payload);
         closeModal();
         state.currentProjectName = name;
         showToast('Project saved!');
@@ -637,12 +627,7 @@ export async function confirmLoad() {
         closePassageEditor();
 
         // Fetch manifest (lightweight)
-        const manifestResp = await fetch('/api/load/manifest?name=' + encodeURIComponent(loadName));
-        if (!manifestResp.ok) {
-            const err = await manifestResp.json();
-            throw new Error(err.detail || 'Failed to load project manifest');
-        }
-        const manifest = await manifestResp.json();
+        const manifest = await api.loadManifest(loadName);
         state.groupsManifest = manifest;
 
         // Restore variables from manifest
@@ -666,12 +651,7 @@ export async function confirmLoad() {
         }
 
         // Load only side_panel group (full node data)
-        const sidePanelResp = await fetch('/api/load?name=' + encodeURIComponent(loadName) + '&groups=side_panel');
-        if (!sidePanelResp.ok) {
-            const err = await sidePanelResp.json();
-            throw new Error(err.detail || 'Failed to load side panel');
-        }
-        const sidePanelProject = await sidePanelResp.json();
+        const sidePanelProject = await api.loadProject(loadName, ['side_panel']);
         state.isLoading = true;
 
         // Create side_panel nodes
@@ -770,15 +750,7 @@ export async function saveProjectSilent() {
         state.nodesData[state.selectedNodeId].text = getEditorValue();
     }
     const payload = _buildSavePayload(state.currentProjectName);
-    const response = await fetch('/api/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || 'Save failed');
-    }
+    await api.saveProject(payload);
 }
 
 export async function exportGame() {
@@ -789,7 +761,7 @@ export async function exportGame() {
     showLoader('Exporting...');
     try {
         await saveProjectSilent();
-        window.location.href = '/api/export/' + encodeURIComponent(state.currentProjectName);
+        await api.exportProjectZip(state.currentProjectName);
     } catch (err) {
         alert('Export failed: ' + err.message);
     } finally {
@@ -805,13 +777,14 @@ export async function previewGame() {
     showLoader('Generating preview...');
     try {
         await saveProjectSilent();
-        const resp = await fetch('/api/preview/' + encodeURIComponent(state.currentProjectName));
-        if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.detail || 'Preview failed');
+        const data = await api.buildPreviewHtml(state.currentProjectName);
+        if (data && data.url) {
+            window.open(data.url, '_blank');
+        } else if (data && data.html) {
+            const blob = new Blob([data.html], { type: 'text/html' });
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank');
         }
-        const data = await resp.json();
-        window.open(data.url, '_blank');
     } catch (err) {
         alert('Preview failed: ' + err.message);
     } finally {

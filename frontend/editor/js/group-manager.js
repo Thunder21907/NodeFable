@@ -5,6 +5,7 @@ import { escapeHtml, showToast, showLoader, hideLoader } from './ui-utils.js';
 import { validateDeadEnds, validateOrphans } from './validation.js';
 import { snapshotState } from './history.js';
 import { updateStartBadgeOnCanvas, updateUtilityBadgeOnCanvas, closePassageEditor } from './node-editor.js';
+import { api } from './api.js';
 
 export function addGroup() {
     // Create a unique group ID
@@ -343,9 +344,7 @@ export async function loadGroupFromPortal(portalNodeId) {
             delete state.collapsedGroupsData[groupId];
         } else {
             if (!state.currentProjectName) return;
-            const resp = await fetch('/api/load?name=' + encodeURIComponent(state.currentProjectName) + '&groups=' + encodeURIComponent(groupId));
-            if (!resp.ok) throw new Error('Failed to load group');
-            const project = await resp.json();
+            const project = await api.loadProject(state.currentProjectName, [groupId]);
             nodes = project.nodes || [];
         }
 

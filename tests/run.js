@@ -62,7 +62,7 @@ function syntaxCheckEditorModule() {
 syntaxCheckEngine();
 syntaxCheckEditorModule();
 
-const suites = ['wait', 'live_region', 'audio', 'regression', 'back', 'tables', 'setup', 'helpers', 'objects', 'fn_nodes', 'nested_conditionals', 'radios', 'editor_slug'];
+const suites = ['wait', 'live_region', 'audio', 'regression', 'back', 'tables', 'setup', 'helpers', 'objects', 'fn_nodes', 'nested_conditionals', 'radios', 'editor_slug', 'api_assets'];
 for (const name of suites) {
     require('./suites/' + name + '.test.js');
 }

@@ -2,18 +2,20 @@
 import { state } from './state.js';
 import { escapeHtml, showToast } from './ui-utils.js';
 import { insertAtCursor } from './codemirror-setup.js';
-import { SVG_CLOSE } from './constants.js'; 
+import { SVG_CLOSE } from './constants.js';
+import api, { cleanAssetRelPath, resolveEditorAssetUrl } from './api.js';
 
 const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov'];
 const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'];
 
-function assetSyntax(url, name) {
+export function assetSyntax(relPath, name) {
     const ext = (name.split('.').pop() || '').toLowerCase();
-    if (AUDIO_EXTS.includes(ext)) return '{audio: ' + url + '}';
-    if (VIDEO_EXTS.includes(ext)) return '{video: ' + url + '}';
+    const target = 'assets/' + cleanAssetRelPath(relPath || name);
+    if (AUDIO_EXTS.includes(ext)) return '{audio: ' + target + '}';
+    if (VIDEO_EXTS.includes(ext)) return '{video: ' + target + '}';
     const alt = name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
-    return '{img: ' + url + (alt ? ', alt=' + alt : '') + '}';
-} 
+    return '{img: ' + target + (alt ? ', alt=' + alt : '') + '}';
+}
 
 export async function refreshAssets() {
     const section = document.getElementById('asset-section');
@@ -23,9 +25,7 @@ export async function refreshAssets() {
         return;
     }
     try {
-        const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName));
-        if (!resp.ok) throw new Error('Failed to load assets');
-        const data = await resp.json();
+        const data = await api.listAssets(state.currentProjectName);
         const tree = data.tree || [];
         if (tree.length === 0) {
             section.classList.add('is-hidden');
@@ -40,7 +40,7 @@ export async function refreshAssets() {
     } catch (e) {
         section.classList.add('is-hidden');
     }
-} 
+}
 
 export function renderAssetTree(nodes, container, parentPath) {
     let html = '';
@@ -62,18 +62,18 @@ export function renderAssetTree(nodes, container, parentPath) {
             html += '  </div>';
             html += '</div>';
         } else {
-            const url = '/api/assets/' + encodeURIComponent(state.currentProjectName) + '/' + path;
+            const previewUrl = resolveEditorAssetUrl(state.currentProjectName, path);
             const alt = node.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
-            const syntax = assetSyntax(url, node.name);
+            const syntax = assetSyntax(path, node.name);
             html += '<div class="asset-tree-file-row" title="Click to copy: ' + escapeHtml(syntax) + '">';
-            html += '  <img class="asset-preview" src="' + url + '" alt="' + escapeHtml(alt) + '" loading="lazy">';
+            html += '  <img class="asset-preview" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(alt) + '" loading="lazy">';
             html += '  <span class="asset-syntax">' + escapeHtml(syntax) + '</span>';
             html += '  <button class="asset-delete-btn" data-path="' + escapeHtml(path) + '" title="Delete asset">' + SVG_CLOSE + '</button>';
             html += '</div>';
         }
     }
     container.innerHTML = html;
-} 
+}
 
 export function renderAssetTreeChildren(nodes, parentPath) {
     let html = '';
@@ -95,18 +95,18 @@ export function renderAssetTreeChildren(nodes, parentPath) {
             html += '  </div>';
             html += '</div>';
         } else {
-            const url = '/api/assets/' + encodeURIComponent(state.currentProjectName) + '/' + path;
+            const previewUrl = resolveEditorAssetUrl(state.currentProjectName, path);
             const alt = node.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
-            const syntax = assetSyntax(url, node.name);
+            const syntax = assetSyntax(path, node.name);
             html += '<div class="asset-tree-file-row" title="Click to copy: ' + escapeHtml(syntax) + '">';
-            html += '  <img class="asset-preview" src="' + url + '" alt="' + escapeHtml(alt) + '" loading="lazy">';
+            html += '  <img class="asset-preview" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(alt) + '" loading="lazy">';
             html += '  <span class="asset-syntax">' + escapeHtml(syntax) + '</span>';
             html += '  <button class="asset-delete-btn" data-path="' + escapeHtml(path) + '" title="Delete asset">' + SVG_CLOSE + '</button>';
             html += '</div>';
         }
     }
     return html;
-} 
+}
 
 export function getEntriesAtPath(tree, path) {
     if (!path) return tree;
@@ -118,13 +118,13 @@ export function getEntriesAtPath(tree, path) {
         current = found.children || [];
     }
     return current;
-} 
+}
 
 export function renderAssetExplorer(tree) {
     const entries = getEntriesAtPath(tree, state.aeCurrentPath);
     renderBreadcrumb(state.aeCurrentPath);
     renderAEGrid(entries);
-} 
+}
 
 export function renderBreadcrumb(path) {
     const parts = path ? path.split('/') : [];
@@ -135,7 +135,7 @@ export function renderBreadcrumb(path) {
         html += '<span class="ae-crumb" data-path="' + escapeHtml(cumulative) + '">' + escapeHtml(part) + '</span>';
     }
     document.getElementById('ae-breadcrumb').innerHTML = html;
-} 
+}
 
 export function renderAEGrid(entries) {
     const grid = document.getElementById('ae-file-grid');
@@ -157,7 +157,8 @@ export function renderAEGrid(entries) {
             const isImage = ['png','jpg','jpeg','gif','svg','webp','bmp'].includes(ext);
             html += '<div class="ae-grid-item ae-file-item' + selClass + '" data-path="' + escapeHtml(path) + '" data-type="file">';
             if (isImage) {
-                html += '  <img class="ae-thumb" src="' + entry.url + '" alt="' + escapeHtml(entry.name) + '" loading="lazy">';
+                const thumbUrl = resolveEditorAssetUrl(state.currentProjectName, path);
+                html += '  <img class="ae-thumb" src="' + escapeHtml(thumbUrl) + '" alt="' + escapeHtml(entry.name) + '" loading="lazy">';
             } else {
                 html += '  <div class="ae-thumb">&#128196;</div>';
             }
@@ -175,7 +176,7 @@ export function renderAEGrid(entries) {
     }
     grid.innerHTML = html;
     updateAEToolbar();
-} 
+}
 
 export function updateAEToolbar() {
     const count = state.aeSelectedPaths.size;
@@ -184,34 +185,26 @@ export function updateAEToolbar() {
     document.querySelector('#ae-toolbar [data-ae-action="copy"]').disabled = count === 0;
     document.querySelector('#ae-toolbar [data-ae-action="cut"]').disabled = count === 0;
     document.querySelector('#ae-toolbar [data-ae-action="paste"]').disabled = state.aeClipboard === null;
-} 
+}
 
 export function aeNavigate(path) {
     state.aeCurrentPath = path;
     state.aeSelectedPaths.clear();
     refreshAssets();
-} 
+}
 
 export async function aeNewFolder(targetPath) {
     const name = prompt('Folder name:');
     if (!name || !name.trim()) return;
     const folderPath = targetPath !== undefined ? (targetPath ? targetPath + '/' + name.trim() : name.trim()) : (state.aeCurrentPath ? state.aeCurrentPath + '/' + name.trim() : name.trim());
     try {
-        const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/folder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: folderPath })
-        });
-        if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.detail || 'Failed to create folder');
-        }
+        await api.createFolder(state.currentProjectName, folderPath);
         showToast('Folder created');
         refreshAssets();
     } catch (err) {
         alert('Failed to create folder: ' + err.message);
     }
-} 
+}
 
 export async function aeUpload(targetPath) {
     const input = document.createElement('input');
@@ -219,20 +212,8 @@ export async function aeUpload(targetPath) {
     input.multiple = true;
     input.onchange = async () => {
         for (const file of input.files) {
-            const formData = new FormData();
-            formData.append('file', file);
-            if (targetPath) {
-                formData.append('folder', targetPath);
-            }
             try {
-                const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    throw new Error(err.detail || 'Upload failed');
-                }
+                await api.uploadAsset(state.currentProjectName, file, targetPath || '');
             } catch (err) {
                 alert('Failed to upload ' + file.name + ': ' + err.message);
             }
@@ -240,7 +221,7 @@ export async function aeUpload(targetPath) {
         refreshAssets();
     };
     input.click();
-} 
+}
 
 export async function aeDelete(singlePath) {
     const paths = singlePath ? [singlePath] : Array.from(state.aeSelectedPaths);
@@ -253,26 +234,17 @@ export async function aeDelete(singlePath) {
     let hadError = false;
     for (const p of paths) {
         try {
-            const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/' + encodeURIComponent(p), {
-                method: 'DELETE'
-            });
-            if (!resp.ok) {
-                const err = await resp.json();
-                console.warn('Delete failed for ' + p + ': ' + (err.detail || 'Unknown'));
-                hadError = true;
-                continue;
-            }
-            const result = await resp.json();
-            totalDeleted += result.deleted_count || 1;
+            const result = await api.deleteAsset(state.currentProjectName, p);
+            totalDeleted += (result && result.deleted_count) || 1;
         } catch (err) {
-            console.warn('Delete error for ' + p + ': ' + err.message);
+            console.warn('Delete failed for ' + p + ': ' + err.message);
             hadError = true;
         }
     }
     showToast('Deleted ' + totalDeleted + ' item(s)' + (hadError ? ' (some failed)' : ''));
     state.aeSelectedPaths.clear();
     refreshAssets();
-} 
+}
 
 export async function aeRename() {
     if (state.aeSelectedPaths.size !== 1) return;
@@ -281,36 +253,28 @@ export async function aeRename() {
     const newName = prompt('New name:', oldName);
     if (!newName || !newName.trim() || newName === oldName) return;
     try {
-        const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/rename', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: path, new_name: newName.trim() })
-        });
-        if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.detail || 'Rename failed');
-        }
+        await api.renameAsset(state.currentProjectName, path, newName.trim());
         showToast('Renamed');
         state.aeSelectedPaths.clear();
         refreshAssets();
     } catch (err) {
         alert('Failed to rename: ' + err.message);
     }
-} 
+}
 
 export function aeCopy() {
     if (state.aeSelectedPaths.size === 0) return;
     state.aeClipboard = { action: 'copy', paths: Array.from(state.aeSelectedPaths) };
     updateAEToolbar();
     showToast('Copied ' + state.aeClipboard.paths.length + ' item(s)');
-} 
+}
 
 export function aeCut() {
     if (state.aeSelectedPaths.size === 0) return;
     state.aeClipboard = { action: 'cut', paths: Array.from(state.aeSelectedPaths) };
     updateAEToolbar();
     showToast('Cut ' + state.aeClipboard.paths.length + ' item(s)');
-} 
+}
 
 export async function aePaste() {
     if (!state.aeClipboard) return;
@@ -321,30 +285,10 @@ export async function aePaste() {
         if (srcPath === dstPath) continue;
         try {
             if (state.aeClipboard.action === 'copy') {
-                const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/copy', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ from_path: srcPath, to_path: dstPath })
-                });
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    console.warn('Copy failed for ' + srcPath + ': ' + (err.detail || 'Unknown'));
-                    results.errors++;
-                    continue;
-                }
+                await api.copyAsset(state.currentProjectName, srcPath, dstPath);
                 results.copied++;
             } else {
-                const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/move', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ from_path: srcPath, to_path: dstPath })
-                });
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    console.warn('Move failed for ' + srcPath + ': ' + (err.detail || 'Unknown'));
-                    results.errors++;
-                    continue;
-                }
+                await api.moveAsset(state.currentProjectName, srcPath, dstPath);
                 results.moved++;
             }
         } catch (err) {
@@ -360,7 +304,7 @@ export async function aePaste() {
     }
     state.aeSelectedPaths.clear();
     refreshAssets();
-} 
+}
 
 export function insertImage() {
     if (!state.currentProjectName) {
@@ -373,20 +317,9 @@ export function insertImage() {
     input.onchange = async () => {
         const file = input.files[0];
         if (!file) return;
-        const formData = new FormData();
-        formData.append('file', file);
         try {
-            const resp = await fetch('/api/assets/' + encodeURIComponent(state.currentProjectName) + '/upload', {
-                method: 'POST',
-                body: formData
-            });
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.detail || 'Upload failed');
-            }
-            const result = await resp.json();
-            const alt = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
-            const markdown = '{img: ' + result.url + (alt ? ', alt=' + alt : '') + '}';
+            const result = await api.uploadAsset(state.currentProjectName, file, '');
+            const markdown = assetSyntax(result.rel_path || file.name, file.name);
             insertAtCursor(markdown);
             refreshAssets();
         } catch (err) {

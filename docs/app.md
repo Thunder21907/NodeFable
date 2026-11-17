@@ -9,6 +9,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | Module | Responsibility |
 |---|---|
 | `js/constants.js` | `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` markup, `MAX_UNDO` |
+| `js/api.js` | Unified transport adapter (`isTauri`, `invokeTauri`, `cleanAssetRelPath`, `resolveEditorAssetUrl`, `normalizeLegacyAssetUrls`) and `api` transport methods for saves, manifest/project load & save, assets CRUD, preview, and export (routes via Tauri IPC or HTTP `fetch`) |
 | `js/state.js` | The single mutable `state` object (`variables`, `setupVariables`, …) + slug helpers (`slugify`, `generateUniqueSlug`, `getNodeSlug`, `getNodeIdBySlug`, `getNodeTitleBySlug`, `ensureNodeData`) |
 | `js/ui-utils.js` | `showLoader`/`hideLoader`, `showToast`, `escapeHtml`/`escapeRegex`, `showIdError`/`hideIdError`, `validateSlugOnBlur` |
 | `js/history.js` | Undo/redo snapshots (`_captureSnapshot`, `snapshotState`, `captureCurrentState`, `restoreState`, `undo`, `redo`) |
@@ -399,7 +400,7 @@ Wraps selected text with formatting markers, respecting the active editor (spell
 
 ### `insertImage()`
 
-Requires `currentProjectName`. Uploads a file to `POST /api/assets/{name}/upload`, inserts `{img: <url>, alt=<name>}` at cursor, calls `refreshAssets()` (see `docs/guide.md`).
+Requires `currentProjectName`. Uploads a file via `api.uploadAsset(state.currentProjectName, file, '')`, inserts `assetSyntax(result.rel_path || file.name, file.name)` (`{img: assets/<path>, alt=<name>}`) at cursor via `insertAtCursor()`, and calls `refreshAssets()` (see `docs/guide.md`).
 
 ---
 
@@ -438,21 +439,23 @@ Full CRUD for global variables with type-specific parsing (int, float, bool, str
 
 ## Asset Management
 
+All asset and project network/transport calls go through `js/api.js` (routing via Tauri IPC when running inside Tauri or HTTP `fetch` otherwise).
+
 ### `refreshAssets()`
 
-Async. Fetches `GET /api/assets/{name}` (returns tree). Calls `renderAssetTree()` for left panel. If Asset Explorer tab is active, also calls `renderAssetExplorer()`. Hides `#asset-section` if no assets.
+Async. Calls `api.listAssets(state.currentProjectName)` (returns `{ tree }`). Calls `renderAssetTree()` for left panel. If Asset Explorer tab is active, also calls `renderAssetExplorer()`. Hides `#asset-section` if no assets.
 
 ### `renderAssetTree(nodes, container, parentPath)`
 
-Recursively renders tree view into `#asset-tree`. Folders show a toggle (▶) and 📁 icon. Files show thumbnail, syntax string, and delete button. Folder rows have inline "new folder" and "upload" buttons. The per-file syntax string comes from `assetSyntax(url, name)` — a `{img: url, alt=…}` directive for images and `{video: url}` for `mp4`/`webm`/`ogg`/`mov` files.
+Recursively renders tree view into `#asset-tree`. Folders show a toggle (▶) and 📁 icon. Files show thumbnail, syntax string, and delete button. Folder rows have inline "new folder" and "upload" buttons. Editor preview thumbnails resolve via `resolveEditorAssetUrl(state.currentProjectName, path)` (`nfasset://localhost/<proj>/assets/<path>` in Tauri mode, `/api/assets/<proj>/<path>` in HTTP mode). The per-file syntax string comes from `assetSyntax(path, node.name)`.
 
-### `assetSyntax(url, name)`
+### `assetSyntax(relPath, name)`
 
-Returns the copyable directive for a file: `{img: <url>, alt=<name>}` (alt = name minus extension, non-alphanumeric chars → `_`) for images, `{video: <url>}` for video files (`VIDEO_EXTS`), or `null` for other files (no syntax shown).
+Exported helper. Normalizes `relPath || name` via `cleanAssetRelPath()` and returns the copyable directive with a pure relative `assets/<path>` target: `{audio: assets/<path>}` for audio files (`AUDIO_EXTS`), `{video: assets/<path>}` for video files (`VIDEO_EXTS`), or `{img: assets/<path>, alt=<name>}` (alt = name minus extension, non-alphanumeric chars → `_`) for images/other files.
 
 ### `renderAssetTreeChildren(nodes, parentPath)`
 
-Recursive helper that returns HTML string for child nodes (used inside expandable containers).
+Recursive helper that returns HTML string for child nodes (used inside expandable containers). Resolves preview thumbnails via `resolveEditorAssetUrl(state.currentProjectName, path)` and directive syntax via `assetSyntax(path, node.name)`.
 
 ### `getEntriesAtPath(tree, path)`
 
@@ -468,7 +471,7 @@ Renders clickable breadcrumb segments from `aeCurrentPath`. Each segment navigat
 
 ### `renderAEGrid(entries)`
 
-Renders grid view in `#ae-file-grid`. Folders show 📁 icon. Image files show thumbnail; other files show 📄. Displays file size. Clicking a folder navigates into it. Selection state from `aeSelectedPaths`.
+Renders grid view in `#ae-file-grid`. Folders show 📁 icon. Image files show thumbnail resolved via `resolveEditorAssetUrl(state.currentProjectName, path)` (`nfasset://` in Tauri, `/api/assets/...` in HTTP mode); other files show 📄. Displays file size. Clicking a folder navigates into it. Selection state from `aeSelectedPaths`.
 
 ### `updateAEToolbar()`
 
@@ -480,19 +483,19 @@ Sets `aeCurrentPath`, clears selection, calls `refreshAssets()`.
 
 ### `aeNewFolder(targetPath)`
 
-Prompts for name, sends `POST /api/assets/{name}/folder`, refreshes.
+Prompts for name, calls `api.createFolder(state.currentProjectName, folderPath)`, refreshes.
 
 ### `aeUpload(targetPath)`
 
-Opens file picker (multi-file), uploads each to `POST /api/assets/{name}/upload` with folder param, refreshes.
+Opens file picker (multi-file), uploads each via `api.uploadAsset(state.currentProjectName, file, targetPath || '')`, refreshes.
 
 ### `aeDelete(singlePath)`
 
-Iterates all paths in `aeSelectedPaths` (or the single path), sends `DELETE` for each. Shows combined toast with total deleted count. Clears selection.
+Iterates all paths in `aeSelectedPaths` (or the single path), calls `api.deleteAsset(state.currentProjectName, p)` for each. Shows combined toast with total deleted count. Clears selection.
 
 ### `aeRename()`
 
-Operates on the single selected path (no-op if 0 or >1 selected). Prompts for new name, sends `PUT /api/assets/{name}/rename`, refreshes.
+Operates on the single selected path (no-op if 0 or >1 selected). Prompts for new name, calls `api.renameAsset(state.currentProjectName, path, newName.trim())`, refreshes.
 
 ### `aeCopy()` / `aeCut()`
 
@@ -500,7 +503,7 @@ Store all selected paths as `aeClipboard = {action: "copy"|"cut", paths: [...]}`
 
 ### `aePaste()`
 
-Iterates all clipboard paths, copies or moves each to `aeCurrentPath`. Clears clipboard after cut. Shows combined toast.
+Iterates all clipboard paths, copies or moves each to `aeCurrentPath` via `api.copyAsset()` / `api.moveAsset()`. Clears clipboard after cut. Shows combined toast.
 
 ### Grid interaction (delegation, in `setupAssetDelegation`)
 

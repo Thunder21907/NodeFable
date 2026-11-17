@@ -114,7 +114,7 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 8. Initializes CodeMirror 5 on `#passage-content-editor` with the custom `nodefable` mode (see below), `material-darker` theme, line numbers, line wrapping, bracket matching, `viewportMargin: Infinity`, and `extraKeys` (`Enter` → `newlineAndIndentContinueMarkdownList`, `Ctrl-Space` → autocomplete).
 9. Wires CodeMirror + textarea auto-save listeners (see Markdown Auto-Save).
 10. Registers global `keydown` listener for keyboard shortcuts (Ctrl+S, Ctrl+Z/Y, Delete/Backspace, Escape) via `setupKeyboardShortcuts()`.
-11. Calls `ensureSidePanelNode()` after 100ms delay.
+11. Calls `ensureSidePanelNode()` and `ensureSetupNode()` after a 100ms delay (both reserved nodes appear on any fresh canvas).
 
 ---
 
@@ -126,7 +126,7 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 
 | Token | Match |
 |---|---|
-| `keyword` | `{if:}` / `{elseif:}` / `{else}` / `{endif}`, `{set:}`, `{redirect:}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{endradiogroup}`, `{radiobutton:}`, `{wait:...}{endwait}`, `{endwait}`, `{dialogue:}`, `{enddialogue}`, `{img:}`, `{video:}`, `{audio:}`, `{action:}`, `{endaction}`, `{live:}`, `{endlive}`, `{while:}` / `{endwhile}`, `{do}`, `{break}`, `{continue}`, `{for:}` / `{endfor}`, `{unset:}`, `{include:}`, `{init}` / `{endinit}`, `{fn:}`, `{endfn}`, `{return:}`, `{call:}` |
+| `keyword` | `{if:}` / `{elseif:}` / `{else}` / `{endif}`, `{set:}`, `{redirect:}`, `{textfield:}`, `{textarea:}`, `{number:}`, `{checkbox:}`, `{dropdown:}`, `{radiogroup}`, `{endradiogroup}`, `{radiobutton:}`, `{wait:...}{endwait}`, `{endwait}`, `{dialogue:}`, `{enddialogue}`, `{img:}`, `{video:}`, `{audio:}`, `{notify:}`, `{action:}`, `{endaction}`, `{live:}`, `{endlive}`, `{while:}` / `{endwhile}`, `{do}`, `{break}`, `{continue}`, `{for:}` / `{endfor}`, `{unset:}`, `{include:}`, `{init}` / `{endinit}`, `{fn:}`, `{endfn}`, `{return:}`, `{call:}` |
 | `builtin` | `{random:n,m}`, `notify(`, `game.newGame(` |
 | `variable-2` | `{print:state.x}` / `{print state.x}`, bare `state.varname` / `temp.varname` / `setup.varname`, array access `state.myarray[0]` / `state.myarray[state.id]` and `.size` |
 | `atom` | `true` / `false` |
@@ -137,10 +137,10 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 `CodeMirror.registerHelper('hint', 'nodeFableHint', ...)`. Context detection (cursor-based, inspecting the line before the cursor):
 
 - Inside `[...](...)`: suggests `node:` / `action:` prefixes; after `node:` suggests matching slugs from `slugToNodeId`; after `action:` suggests matching action IDs scanned across all nodes.
-- After `state.` / `setup.`: suggests matching variable names from the state/setup stores (`variables` / `setupVariables`); after `temp.` only the prefix is offered (temp has no editor store — runtime-only); after `helper.`: suggests `random`, `either`, `clone`, `clamp`.
+- After `state.` / `setup.`: suggests matching variable names from the state/setup stores (`variables` / `setupVariables`); after `temp.` only the prefix is offered (temp has no editor store — runtime-only); after `helper.`: suggests `random`, `either`, `clone`, `clamp`, `fn_exists`, `hasMacro`, `hasPassage`.
 - After `{include:`: suggests matching passage slugs from `slugToNodeId`.
 - A bare `state`/`temp`/`setup`/`helper` / `state.`/`temp.`/`setup.`/`helper.` token: suggests the scoped prefixes.
-- General word completion: suggests the NodeFable keyword list (`if:`, `elseif:`, `else`, `endif`, `set:`, `redirect:`, `random:`, `textfield:`, `textarea:`, `number:`, `checkbox:`, `dropdown:`, `radiogroup`, `radiobutton:`, `endradiogroup`, `print:`, `wait:`, `endwait`, `dialogue:`, `enddialogue`, `img:`, `video:`, `audio:`, `action:`, `endaction`, `include:`, `live:`, `endlive`, `while:`, `endwhile`, `do`, `break`, `continue`, `for:`, `endfor`, `unset:`, `init`, `endinit`, `fn:`, `endfn`, `return:`, `call:`, `setup`, `helper`, `true`, `false`, `notify(`, `game.newGame()`).
+- General word completion: suggests the NodeFable keyword list (`if:`, `elseif:`, `else`, `endif`, `set:`, `redirect:`, `random:`, `textfield:`, `textarea:`, `number:`, `checkbox:`, `dropdown:`, `radiogroup`, `radiobutton:`, `endradiogroup`, `print:`, `wait:`, `endwait`, `dialogue:`, `enddialogue`, `img:`, `video:`, `audio:`, `notify:`, `action:`, `endaction`, `include:`, `live:`, `endlive`, `while:`, `endwhile`, `do`, `break`, `continue`, `for:`, `endfor`, `unset:`, `init`, `endinit`, `fn:`, `endfn`, `return:`, `call:`, `setup`, `helper`, `true`, `false`, `notify(`, `game.newGame()`).
 
 `inputRead` triggers autocomplete automatically after typing `.` or `:`. `hintOptions.completeSingle = false`.
 
@@ -234,7 +234,7 @@ Creates a unique group ID (`chapter_N`), pushes a group entry into `groupsManife
 
 ### `ensureSidePanelNode()` / `ensureSetupNode()`
 
-`ensureSidePanelNode` creates a node with slug `side_panel` (including `is_start: false`) if it does not already exist. `ensureSetupNode` (new, spec 33) creates a node with slug `setup` (`is_utility: true`, group `side_panel`) if it does not already exist. Both are called after init and after every project load (the setup node lives in the always-loaded `side_panel` group so it's never hidden behind a portal).
+`ensureSidePanelNode` creates a node with slug `side_panel` (including `is_start: false`) if it does not already exist. `ensureSetupNode` (new, spec 33) creates a node with slug `setup` (`is_utility: true`, group `side_panel`) if it does not already exist. Both are called after init (app.js DOMContentLoaded start, a 100ms `setTimeout` each) and after every project load — so a fresh project always has the Setup node just like Side Panel. The setup node lives in the always-loaded `side_panel` group so it's never hidden behind a portal. Like `side_panel`, it is a **reserved system node**: the editor hides its Start/Utility/Fn toggles (it stays `is_utility: true`, never a start node), disables its group dropdown, blocks delete, skips its context menu, and the orphan-validation implicit-start fallback excludes `setup`. Group-switch unloads keep nodes by **group** (`side_panel`), so the setup node survives `moveToGroupFromPortal` alongside `side_panel` (see `docs/frontend.md`, "Groups").
 
 ### `injectOverlayToNode(nodeId, deferred)`
 
@@ -405,13 +405,22 @@ Requires `currentProjectName`. Uploads a file to `POST /api/assets/{name}/upload
 
 ## Save Data
 
+### `propagateSlugRename(oldSlug, newSlug, currentNodeId)`
+
+Centralizes slug-rename propagation when a passage slug changes:
+1. Updates `state.slugToNodeId` (deletes `oldSlug`, sets `newSlug -> currentNodeId`). Returns a no-op `(txt) => txt || ''` if `!oldSlug || oldSlug === newSlug`.
+2. Builds a `rewriteText(txt)` helper that rewrites exact `[text](node:oldSlug)` markdown links and `{redirect: oldSlug}` / `{include: oldSlug}` directives to `newSlug` without touching partial-prefix slugs (e.g. `old_forest_2`).
+3. Scans loaded `state.nodesData`: updates `choices[].targetSlug`, `on_enter.target_node_id`, `text` (via `rewriteText`), and `portalSlugIds` on portal nodes (both string entries and `{ slug_id, connections[] }` objects).
+4. Scans `state.collapsedGroupsData`: updates cached node `id`, `choices[].targetSlug`, `choices[].target_node_id`, `on_enter.target_node_id`, and `text`.
+5. Scans `state.groupsManifest.groups[].slug_ids`: updates both string entries and `{ slug_id, connections[] }` objects. Returns `rewriteText`.
+
 ### `saveCurrentContent(nodeId)`
 
-Lightweight content sync: reads title, content, and slug from DOM and writes to `nodesData[nodeId]` (also re-keys `slugToNodeId` if the slug changed). Used for auto-save on node switch, title blur, and slug blur.
+Lightweight content sync: reads title, content, `is_utility`, `is_function`, and slug from DOM and writes to `nodesData[nodeId]`. Includes a duplicate-slug guard (`newSlug && newSlug !== nodeData.slug && state.slugToNodeId[newSlug] === undefined`): only when the new slug is non-empty, changed, and unused does it call `propagateSlugRename(nodeData.slug, newSlug, nodeId)`, update `nodeData.slug`, sync the editor value if `nodeData.text` was rewritten, and re-render choices/on-enter for the selected node. Used for auto-save on node switch, title blur, and slug blur.
 
 ### `updateCurrentNode()`
 
-Takes undo snapshot. Reads title, slug, content from DOM. Syncs `is_start` from checkbox (enforces single-start — unchecks all others). Updates slug references across all nodes (`choices[].targetSlug`, `on_enter.target_node_id`). Syncs group from dropdown and choice prerequisites/mutations from the DOM. Updates the Drawflow node label. Re-renders choices and on-enter.
+Takes undo snapshot. Reads title, slug, content from DOM (rejecting empty or duplicate slugs via `showIdError`). When the slug changed, calls `propagateSlugRename(oldSlug, newSlug, state.selectedNodeId)`, applies the returned `rewriteText` to `content` (syncing the editor if changed), and updates `nodeData.slug`. Syncs `is_start` from checkbox (enforces single-start — unchecks all others), `is_utility`, and `is_function`. Syncs group from dropdown and choice prerequisites/mutations from the DOM. Updates the Drawflow node label and badges. Re-renders choices, on-enter, and functions.
 
 ---
 
@@ -750,6 +759,10 @@ loadGroupFromPortal(portalNodeId)
   ├─ nodes = collapsedGroupsData[groupId]     ← cache consumed BEFORE the
   │           (no project name needed)          currentProjectName fetch guard
   ├─ nodes ?? fetch /api/load?groups=groupId
+  │   └─ node group := node.group ?? groupId   ← the requested group is
+  │      authoritative; the backend no longer injects `group:"side_panel"`
+  │      into nodes that omit it, so loading a story/chapter group keeps
+  │      those nodes in their own group and the group dropdown stays correct
   ├─ _removePortalNode(portalNodeId)          ← portal node + portalOutputSvg
   │                                            lines removed; other portals refresh
   ├─ createNodesBatched(nodes, batchSize)   ← RAF-chunked node creation
@@ -842,7 +855,7 @@ confirmLoad()
   ├─ isLoading = false
   ├─ updateStartBadgeOnCanvas() for all nodes
   ├─ requestAnimationFrame → validateDeadEnds(), validateOrphans(), re-apply search
-  └─ ensureSidePanelNode()
+  └─ ensureSidePanelNode() + ensureSetupNode() (no-op if already on canvas)
 ```
 
 ### Exporting
@@ -877,7 +890,7 @@ render(nodeId)
      ├─ {wait:}/{dialogue:} blocks → animated containers ({wait:} gated on _freshEntry)
      ├─ {live:} placeholder tokens (\u0000nflive_<n>\u0000) → .nf-live container divs
      ├─ {print:} placeholder tokens (\u0000nfvar_<n>\u0000) → captured values
-     └─ choice links (prerequisites evaluated → class="disabled", indices into the merged list)
+     ├─ choice links (prerequisites evaluated → class="disabled", indices into the merged list; dynamic slugs resolved from {print:} placeholders carry no index → click falls back to target_node_id match, see L18 in docs/syntax.md)
 ```
 
 `{bar: expr, max=, w=, color=, class=}` evaluates `expr` via `new Function('state','setup','helper','temp', 'return ' + _norm(expr))` at render time; fill = `value/max × 100` clamped to 0–100%. `undefined`/`null` → 0% fill; a throwing/invalid expression renders the tag literally. The table/bar tags are unknown to the walker, so they pass through `_processDirectives` untouched (both normal and render-only mode) and only expand in `renderContent` — the same behavior class as `{img:}`/`{dialogue:}`.
@@ -893,7 +906,7 @@ Helpers (all on the runtime `Game`/engine object):
 | `processDirectives(text)` | Public entry point; dispatches on each directive. |
 | `_processDirectives(text, inLoop)` | Recursive body handler; returns `{ text, signal }` where `signal` is `'break'`, `'continue'`, `'fnreturn'` (from `{return:}` in a function body), or `null`. Out-of-loop `{break}`/`{continue}` render as literal text. |
 | `_selectIfBranch(condText)` | Evaluates one `{if:}`/`{elseif:}` condition; returns `{ result, remaining }` — the condition truthiness and the text after that tag. |
-| `_parseIfBranches(condText, body, elseText, rest, inLoop)` | Splits the block into branches (`if`/`elseif`/`else`), picks the first truthy branch, and processes it. |
+| `_parseIfBranches(condText, body, elseText, rest, inLoop)` | Splits the block into branches (`if`/`elseif`/`else`), picks the first truthy branch, and processes it. Depth-aware scan: adjacent tags (`{if:}{if:}…{endif}{endif}`) parse because the inner `{if:}`/`{endif}` handlers advance `j` past the tag and `continue` the scan immediately (no double-advance). |
 | `_runWhile(condText, body, rest, inLoop)` | 0-or-more loop. Iterates: evaluate condition → process body → propagate `break`/`continue`. Stops after **1000 iterations** (`notify("Loop limit exceeded")`). |
 | `_runDoWhile(condText, body, rest, inLoop)` | 1-or-more loop. Runs the body first, then checks the `{while: condition}` tag that closes it. Same 1000-iteration cap. |
 | `_runFor(init, condition, update, body)` | C-style loop. Runs `init` once via the mutation pipeline (creating the variable), then iterates `condition` → body → `update`, propagating `break`/`continue` (`{continue}` still runs the update clause; `{break}` exits before it). Same 1000-iteration cap. |
@@ -907,7 +920,7 @@ Helpers (all on the runtime `Game`/engine object):
 | `_activeChoices` | The merged choice list `render()` / `renderSidePanel()` hand to `renderContent` and `navigateTo`. |
 | `_actionBlocks` | Per-render capture of raw action-block bodies, in walker encounter order (reset at the top of `render()` and in `init()`). Each rendered block pushes its body and emits `data-action-block="<index>"`. |
 | `_actionBlockLinks` | Per-render array of the anchor HTML for each rendered action block (same index as `_actionBlocks`). The walker pushes the link and emits a `\u0000nfaction_<idx>\u0000` placeholder token instead of raw HTML; `renderContent` restores the anchor **after** HTML-escaping so the tag survives. |
-| `_renderOnly` | Instance flag (false). When true, `_processDirectives` consumes side-effect/block directives without executing or emitting (one `console.warn` per kind, tracked in `_renderOnlyWarned`): `{set:}`/`{unset:}`/`{include:}`/`{audio:}`/`{redirect:}`/`{break}`/`{continue}`, `{init}`/`{live:}`/`{action:}`/`{wait:}` blocks (skipped to their end tags), loops (`{for:}`/`{while:}`/`{do}` via `_find*End`), form tags, and `{fn:}`/`{endfn}`/`{return:}`/`{call:}`. Everything else (text, `{print:}`, `{if:}` branches, `{random:}`, media, `[text](node:slug)` links) renders normally. Guarded with try/finally and threads through `{if:}` recursion like `_inInit`. |
+| `_renderOnly` | Instance flag (false). When true, `_processDirectives` consumes side-effect/block directives without executing or emitting (one `console.warn` per kind, tracked in `_renderOnlyWarned`): `{set:}` (skipped via brace-aware `_findSetEnd` so object literals inside `{set:}` do not truncate early)/`{unset:}`/`{include:}`/`{audio:}`/`{redirect:}`/`{break}`/`{continue}`, `{notify:}` (consumed silently without warning), `{init}`/`{live:}`/`{action:}`/`{wait:}` blocks (skipped to their end tags), loops (`{for:}`/`{while:}`/`{do}` via `_find*End`), form tags, and `{fn:}`/`{endfn}`/`{return:}`/`{call:}`. Everything else (text, `{print:}`, `{if:}` branches, `{random:}`, media, `[text](node:slug)` links) renders normally. Guarded with try/finally and threads through `{if:}` recursion like `_inInit`. |
 | `_liveRegions` | Per-render array of `{ id, interval, body }` for each rendered live region, in walker order (reset at the top of `render()` and in `init()`). |
 | `_liveTimers` | Array of `setInterval` ids from `refreshLiveRegions()`; cleared at the top of `render()` and in `newGame()`/`loadGame()`. |
 | `renderLiveRegion(region)` | Refreshes one region's display: query `[data-live-region="<id>"]`, run the body through `_processDirectives` in **render-only mode**, then `renderContent` the result into the element's innerHTML. |
@@ -997,7 +1010,7 @@ All expression evaluation funnels through three helpers that bind four scopes in
 
 ### `helper` scope + prototype extensions
 
-`_installHelpers()` runs at the top of `init(data)` (guarded by `this._helpersInstalled` so re-`init`s don't reinstall) and sets `this.helper = Object.freeze({ random, either, clone, clamp })` — `random(min,max)` inclusive integer (1 arg → `0..max`, 0 args → throws), `either(...values)` (flattened pick, `undefined` for none), `clone(value)` (deep, realm-agnostic via `Object.prototype.toString` tags; handles Array/Date/Map/RegExp/Set/plain objects, honors a `.clone()` method, throws on unsupported types), `clamp(x,lo,hi)` = `Math.max(lo, Math.min(hi,x))`. It then installs (only if absent) the SugarCube 2.37.3 `Array.prototype` extensions (`first`, `last`, `count`, `countWith`, `contains`*, `concatUnique`, `toUnique`, `toShuffled`, `random`, `randomMany`, `includesAll`, `includesAny`, `append`*, `prepend`*, `delete`, `deleteAll`, `deleteAt`, `deleteFirst`, `deleteLast`, `deleteWith`, `pluck`, `pluckMany`, `pushUnique`, `unshiftUnique`, `shuffle`; * = legacy-compat extras) and `String.prototype` extensions (`toUpperFirst`, `toLocaleUpperFirst`, `first`, `last`, `count`, `contains`*, `splice`, `splitOrEmpty`). All use `Math.random`; `helper` is engine-owned and read-only.
+`_installHelpers()` runs at the top of `init(data)` (guarded by `this._helpersInstalled` so re-`init`s don't reinstall) and sets `this.helper = Object.freeze({ random, either, clone, clamp, fn_exists, hasMacro, hasPassage })` — `random(min,max)` inclusive integer (1 arg → `0..max`, 0 args → throws), `either(...values)` (flattened pick, `undefined` for none), `clone(value)` (deep, realm-agnostic via `Object.prototype.toString` tags; handles Array/Date/Map/RegExp/Set/plain objects, honors a `.clone()` method, throws on unsupported types), `clamp(x,lo,hi)` = `Math.max(lo, Math.min(hi,x))`, `fn_exists(name)` (case-insensitive lookup in `_functions`), `hasMacro(name)` (alias for `fn_exists(name)`), and `hasPassage(slug)` (`_game.nodes[String(slug)] !== undefined`). It then installs (only if absent) the SugarCube 2.37.3 `Array.prototype` extensions (`first`, `last`, `count`, `countWith`, `contains`*, `concatUnique`, `toUnique`, `toShuffled`, `random`, `randomMany`, `includesAll`, `includesAny`, `append`*, `prepend`*, `delete`, `deleteAll`, `deleteAt`, `deleteFirst`, `deleteLast`, `deleteWith`, `pluck`, `pluckMany`, `pushUnique`, `unshiftUnique`, `shuffle`; * = legacy-compat extras) and `String.prototype` extensions (`toUpperFirst`, `toLocaleUpperFirst`, `first`, `last`, `count`, `contains`*, `splice`, `splitOrEmpty`). All use `Math.random`; `helper` is engine-owned and read-only.
 
 ### `temp` scratch namespace
 

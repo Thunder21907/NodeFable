@@ -47,7 +47,7 @@ Everything under `frontend/editor/` is served at `/editor/...`. The `html=True` 
 
 `VariableValue = Union[bool, int, float, str, list]` (defined in `backend/schemas/project.py:5`).
 
-`NodeData` now includes a `group: str` field (default `"side_panel"`), an `is_utility: bool` field (default `False`, editor/validation-only — nodes stay in the export so `{include:}` can splice them), and an `is_function: bool` field (default `False` — marks a node as a `{fn:}` catalogue, excluded from navigation and validation). Nodes are partitioned by group on save. `is_function` round-trips through Pydantic (`model_dump` / coercion) with no backend code changes; manifest version stays `2`.
+`NodeData` now includes a `group: Optional[str]` field (default `None` — the group file the node was loaded from is authoritative; Pydantic no longer injects `"side_panel"` into nodes that omit the field), an `is_utility: bool` field (default `False`, editor/validation-only — nodes stay in the export so `{include:}` can splice them), and an `is_function: bool` field (default `False` — marks a node as a `{fn:}` catalogue, excluded from navigation and validation). Nodes are partitioned by group on save (`n.get("group") or "side_panel"`). `is_function` round-trips through Pydantic (`model_dump` / coercion) with no backend code changes; manifest version stays `2`.
 
 ### `ProjectSchema` (response model for `/api/load`)
 
@@ -206,7 +206,7 @@ GET /api/load?name=<project_name>&groups=side_panel,chapter_1
 ```json
 {
   "variables": { "hp": 100 },
-  "nodes": [ { "id": "node_1", "title": "...", "group": "chapter_1", ... } ]
+  "nodes": [ { "id": "node_1", "title": "...", "group": null, ... } ]
 }
 ```
 
@@ -217,7 +217,7 @@ GET /api/load?name=<project_name>&groups=side_panel,chapter_1
 **Behavior:**
 - When `groups` is specified, only reads the corresponding group files from `groups/<id>.json`
 - When `groups` is omitted, merges all group files into one response
-- Each node now includes a `group` field indicating which group it belongs to
+- Each node carries only the fields stored in its group file: nodes saved without a `group` field come back as `"group": null` (never invented as `"side_panel"`); the frontend derives group membership from the requested group instead, so loading a non-`side_panel` group can no longer reset nodes to the Side Panel group on save
 
 ---
 

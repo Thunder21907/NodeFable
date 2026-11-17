@@ -2,7 +2,7 @@
 // Passage editor panel, node CRUD, linking, choices/on_enter editors.
 import { state, ensureNodeData, getNodeTitleBySlug, getNodeSlug, generateUniqueSlug, getNodeIdBySlug } from './state.js';
 import { snapshotState } from './history.js';
-import { escapeHtml, escapeRegex, showIdError, hideIdError } from './ui-utils.js';
+import { escapeHtml, escapeRegex, showIdError, hideIdError, showToast } from './ui-utils.js';
 import { getEditorValue, setEditorValue, insertAtCursor } from './codemirror-setup.js';
 import { openGroupEditor, populateGroupDropdown, _setupNodeCollapseButton, removeNodeFromGroups } from './group-manager.js';
 
@@ -48,10 +48,17 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
     const isStartCheckbox = document.getElementById('passage-is-start');
     const isUtilityCheckbox = document.getElementById('passage-is-utility');
     const isFnCheckbox = document.getElementById('passage-is-fn');
-    if (data.slug === 'side_panel') {
+    if (data.slug === 'side_panel' || data.slug === 'setup') {
         isStartCheckbox.style.display = 'none';
         if (isUtilityCheckbox) isUtilityCheckbox.style.display = 'none';
         if (isFnCheckbox) isFnCheckbox.style.display = 'none';
+        // The setup node, like side_panel, is a reserved system node: it can
+        // never be the start node and is always content-only (is_utility).
+        if (data.slug === 'setup') {
+            data.is_start = false;
+            data.is_utility = true;
+            if (isUtilityCheckbox) isUtilityCheckbox.checked = true;
+        }
     } else {
         isStartCheckbox.style.display = 'flex';
         if (isUtilityCheckbox) isUtilityCheckbox.style.display = 'flex';
@@ -78,6 +85,83 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
     syncFnSectionVisibility();
 }
 
+export function propagateSlugRename(oldSlug, newSlug, currentNodeId) {
+    if (oldSlug) delete state.slugToNodeId[oldSlug];
+    state.slugToNodeId[newSlug] = currentNodeId;
+    if (!oldSlug || oldSlug === newSlug) return (txt) => txt || '';
+
+    const mdLinkRe = new RegExp('(\\[[^\\]]*\\]\\(node:)' + escapeRegex(oldSlug) + '(\\))', 'g');
+    const dirRe = new RegExp('(\\{(?:redirect|include):\\s*)' + escapeRegex(oldSlug) + '(\\s*\\})', 'gi');
+    const rewriteText = (txt) => (txt || '').replace(mdLinkRe, '$1' + newSlug + '$2').replace(dirRe, '$1' + newSlug + '$2');
+
+    for (const [nid, ndata] of Object.entries(state.nodesData)) {
+        if (ndata.choices) {
+            ndata.choices.forEach(choice => {
+                if (choice.targetSlug === oldSlug) {
+                    choice.targetSlug = newSlug;
+                }
+            });
+        }
+        if (ndata.on_enter && ndata.on_enter.target_node_id === oldSlug) {
+            ndata.on_enter.target_node_id = newSlug;
+        }
+        if (typeof ndata.text === 'string' && ndata.text) {
+            ndata.text = rewriteText(ndata.text);
+        }
+        if (ndata.isPortal && Array.isArray(ndata.portalSlugIds)) {
+            ndata.portalSlugIds = ndata.portalSlugIds.map(entry => {
+                if (typeof entry === 'string') return entry === oldSlug ? newSlug : entry;
+                return {
+                    ...entry,
+                    slug_id: entry.slug_id === oldSlug ? newSlug : entry.slug_id,
+                    connections: Array.isArray(entry.connections)
+                        ? entry.connections.map(c => c === oldSlug ? newSlug : c)
+                        : []
+                };
+            });
+        }
+    }
+
+    for (const [gid, cachedNodes] of Object.entries(state.collapsedGroupsData || {})) {
+        if (Array.isArray(cachedNodes)) {
+            for (const cn of cachedNodes) {
+                if (cn.id === oldSlug) cn.id = newSlug;
+                if (Array.isArray(cn.choices)) {
+                    for (const c of cn.choices) {
+                        if (c.targetSlug === oldSlug) c.targetSlug = newSlug;
+                        if (c.target_node_id === oldSlug) c.target_node_id = newSlug;
+                    }
+                }
+                if (cn.on_enter && cn.on_enter.target_node_id === oldSlug) {
+                    cn.on_enter.target_node_id = newSlug;
+                }
+                if (typeof cn.text === 'string' && cn.text) {
+                    cn.text = rewriteText(cn.text);
+                }
+            }
+        }
+    }
+
+    if (state.groupsManifest && Array.isArray(state.groupsManifest.groups)) {
+        for (const g of state.groupsManifest.groups) {
+            if (Array.isArray(g.slug_ids)) {
+                g.slug_ids = g.slug_ids.map(entry => typeof entry === 'string'
+                    ? (entry === oldSlug ? newSlug : entry)
+                    : {
+                        ...entry,
+                        slug_id: entry.slug_id === oldSlug ? newSlug : entry.slug_id,
+                        connections: Array.isArray(entry.connections)
+                            ? entry.connections.map(c => c === oldSlug ? newSlug : c)
+                            : []
+                    }
+                );
+            }
+        }
+    }
+
+    return rewriteText;
+}
+
 export function saveCurrentContent(nodeId) {
     const title = document.getElementById('passage-title').value;
     const content = getEditorValue();
@@ -92,10 +176,16 @@ export function saveCurrentContent(nodeId) {
     const slugInput = document.getElementById('passage-id');
     if (slugInput) {
         const newSlug = slugInput.value.trim();
-        if (newSlug && newSlug !== nodeData.slug) {
-            delete state.slugToNodeId[nodeData.slug];
-            state.slugToNodeId[newSlug] = nodeId;
+        if (newSlug && newSlug !== nodeData.slug && state.slugToNodeId[newSlug] === undefined) {
+            propagateSlugRename(nodeData.slug, newSlug, nodeId);
             nodeData.slug = newSlug;
+            if (nodeData.text !== content) {
+                setEditorValue(nodeData.text);
+            }
+            if (state.selectedNodeId === nodeId) {
+                renderChoices(nodeId);
+                renderOnEnter(nodeId);
+            }
         }
     }
 }
@@ -105,7 +195,7 @@ export function updateCurrentNode() {
     snapshotState();
 
     const title = document.getElementById('passage-title').value;
-    const content = getEditorValue();
+    let content = getEditorValue();
     const newSlug = document.getElementById('passage-id').value.trim();
 
     ensureNodeData(state.selectedNodeId);
@@ -124,26 +214,12 @@ export function updateCurrentNode() {
 
     if (newSlug !== nodeData.slug) {
         const oldSlug = nodeData.slug;
-
-        delete state.slugToNodeId[oldSlug];
-        state.slugToNodeId[newSlug] = state.selectedNodeId;
-
-        for (const [nid, ndata] of Object.entries(state.nodesData)) {
-            if (ndata.choices) {
-                ndata.choices.forEach(choice => {
-                    if (choice.targetSlug === oldSlug) {
-                        choice.targetSlug = newSlug;
-                    }
-                });
-            }
+        const rewriteText = propagateSlugRename(oldSlug, newSlug, state.selectedNodeId);
+        const rewrittenContent = rewriteText(content);
+        if (rewrittenContent !== content) {
+            content = rewrittenContent;
+            setEditorValue(content);
         }
-
-        for (const [nid, ndata] of Object.entries(state.nodesData)) {
-            if (ndata.on_enter && ndata.on_enter.target_node_id === oldSlug) {
-                ndata.on_enter.target_node_id = newSlug;
-            }
-        }
-
         nodeData.slug = newSlug;
     }
 
@@ -196,7 +272,7 @@ export function updateCurrentNode() {
     const nodeEl = document.getElementById('node-' + state.selectedNodeId);
     if (nodeEl) {
         const contentEl = nodeEl.querySelector('.drawflow_content_node');
-        if (contentEl) contentEl.innerHTML = title;
+        if (contentEl) contentEl.textContent = title;
     }
 
     renderChoices(state.selectedNodeId);
@@ -231,6 +307,11 @@ export function addNode() {
 
 export function deleteCurrentNode() {
     if (!state.selectedNodeId) return;
+    const data = state.nodesData[state.selectedNodeId];
+    if (data && (data.slug === 'side_panel' || data.slug === 'setup')) {
+        showToast((data.slug === 'setup' ? 'Setup' : 'Side Panel') + ' is a reserved node and cannot be deleted');
+        return;
+    }
     if (confirm("Are you sure you want to delete this node?")) {
         snapshotState();
         const slug = getNodeSlug(state.selectedNodeId);
@@ -244,6 +325,11 @@ export function deleteCurrentNode() {
 }
 
 export function deleteNodeOverlay(nodeId) {
+    const data = state.nodesData[nodeId];
+    if (data && (data.slug === 'side_panel' || data.slug === 'setup')) {
+        showToast((data.slug === 'setup' ? 'Setup' : 'Side Panel') + ' is a reserved node and cannot be deleted');
+        return;
+    }
     if (confirm("Are you sure you want to delete this node?")) {
         snapshotState();
         const slug = getNodeSlug(nodeId);
@@ -300,6 +386,7 @@ export function toggleStartNode(checked) {
     if (!state.selectedNodeId) return;
     const nodeData = state.nodesData[state.selectedNodeId];
     if (!nodeData) return;
+    if (nodeData.slug === 'side_panel' || nodeData.slug === 'setup') return;
     nodeData.is_start = checked;
     if (checked) {
         for (const [nid, nd] of Object.entries(state.nodesData)) {
@@ -314,7 +401,10 @@ export function toggleStartNode(checked) {
 
 export function toggleUtilityNode(checked) {
     if (state.selectedNodeId == null) return;
-    state.nodesData[state.selectedNodeId].is_utility = checked;
+    const nodeData = state.nodesData[state.selectedNodeId];
+    if (!nodeData) return;
+    if (nodeData.slug === 'side_panel' || nodeData.slug === 'setup') return;
+    nodeData.is_utility = checked;
     updateUtilityBadgeOnCanvas(state.selectedNodeId);
 }
 
@@ -403,7 +493,7 @@ export function renderChoices(nodeId) {
         html += `
             <div class="choice-card" data-node-id="${nodeId}" data-choice-index="${index}">
                 <div class="choice-header">
-                    <span class="choice-target">→ ${targetTitle}</span>
+                    <span class="choice-target">→ ${escapeHtml(targetTitle)}</span>
                     <button data-action="remove-choice" data-target-slug="${escapeHtml(choice.targetSlug)}" class="danger" title="Remove connection">Remove</button>
                 </div>
                 <div class="choice-link-text">Link text: <em>${escapeHtml(linkText || '(edit in passage content)')}</em></div>
@@ -447,7 +537,7 @@ export function renderOnEnter(nodeId) {
                 <option value="">— Select node —</option>
                 ${allSlugs.map(slug => {
                     const title = getNodeTitleBySlug(slug);
-                    return '<option value="' + slug + '" ' + (hasTarget && onEnter.target_node_id === slug ? 'selected' : '') + '>' + title + ' (' + slug + ')</option>';
+                    return '<option value="' + escapeHtml(slug) + '" ' + (hasTarget && onEnter.target_node_id === slug ? 'selected' : '') + '>' + escapeHtml(title) + ' (' + escapeHtml(slug) + ')</option>';
                 }).join('')}
             </select>
             <label for="onenter-condition">Condition (optional JS expression)</label>

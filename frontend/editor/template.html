@@ -211,6 +211,7 @@ const game = {
 
         // Register function catalogues into a global name-index before the setup
         // node boots, so boot-time directives can call {fn:} helpers.
+        this._functions = {};
         for (const n of data.nodes) {
             if (n.is_function && typeof n.text === 'string') this._registerFnCatalogue(n.text);
         }
@@ -337,7 +338,6 @@ const game = {
         if (choice && choice.prerequisite) {
             if (!this._evalBool(choice.prerequisite)) return;
         }
-        const before = this.snapshotState();
         if (choice && choice.mutation) {
             this._evalMutation(choice.mutation, (msg) => this.notify(msg));
         }
@@ -347,7 +347,6 @@ const game = {
         }
         this._historyIndex++;
         this._history[this._historyIndex] = this.currentNodeId;
-        this.detectChanges(before);
         this.updateNavButtons();
         this.autoSave();
     },
@@ -355,7 +354,6 @@ const game = {
     applyActionBlock(idx) {
         const body = (this._actionBlocks || [])[idx];
         if (body == null) return;
-        const before = this.snapshotState();
         const out = this._processDirectives(body, false);
         const redirect = this._checkRedirects(out.text);
         if (redirect === 'back') { this.autoSave(); this.goBack(); return; }
@@ -394,39 +392,63 @@ const game = {
         }
     },
 
-    notify(message) {
-        let toast = document.getElementById('game-toast');
-        if (!toast) {
-            toast = document.createElement('div');
-            toast.id = 'game-toast';
-            document.getElementById('app').appendChild(toast);
+    notify(message, options) {
+        if (typeof message === 'object' && message !== null) {
+            options = message;
+            message = options.message || '';
         }
+        options = options || {};
+        const type = options.type || 'info';
+        const duration = options.duration || 2500;
+        const delay = options.delay || 0;
+
+        let container = document.getElementById('game-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'game-toast-container';
+            document.getElementById('app').appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        toast.className = 'nf-toast nf-toast-' + type;
         toast.textContent = message;
-        toast.style.display = 'block';
-        toast.style.opacity = '1';
-        clearTimeout(this._notifyTimer);
-        this._notifyTimer = setTimeout(() => {
-            toast.style.opacity = '0';
-            setTimeout(() => { toast.style.display = 'none'; }, 300);
-        }, 2500);
+        toast.style.opacity = '0';
+
+        const show = () => {
+            container.appendChild(toast);
+            requestAnimationFrame(() => { toast.style.opacity = '1'; });
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                    if (!container.children.length) container.remove();
+                }, 300);
+            }, duration);
+        };
+
+        if (delay > 0) {
+            setTimeout(show, delay);
+        } else {
+            show();
+        }
     },
 
-    snapshotState() {
-        const snap = {};
-        for (const [key, val] of Object.entries(this.state)) {
-            if (typeof val === 'number' && key !== 'day') snap[key] = val;
+    _notifyDirective(params) {
+        params = params.trim();
+        if (!params) return;
+        const parts = params.split(',').map(s => s.trim());
+        const message = parts.shift();
+        const options = {};
+        for (const p of parts) {
+            const eqI = p.indexOf('=');
+            if (eqI < 0) continue;
+            const key = p.slice(0, eqI).trim().toLowerCase();
+            const val = p.slice(eqI + 1).trim();
+            if (key === 'type') options.type = val;
+            else if (key === 'duration') { const v = parseInt(val, 10); if (!isNaN(v)) options.duration = v; }
+            else if (key === 'delay') { const v = parseInt(val, 10); if (!isNaN(v)) options.delay = v; }
         }
-        return snap;
-    },
-
-    detectChanges(before) {
-        for (const [key, val] of Object.entries(this.state)) {
-            if (typeof val === 'number' && before[key] !== undefined && before[key] !== val && key !== 'day') {
-                const diff = val - before[key];
-                if (diff > 0) this.notify(this.formatKey(key) + ' +' + diff);
-                else if (diff < 0) this.notify(this.formatKey(key) + ' ' + diff);
-            }
-        }
+        this.notify(message, options);
     },
 
     formatKey(key) {
@@ -528,6 +550,7 @@ const game = {
         const container = document.getElementById('save-slots');
         const slotNames = ['Auto-save', 'Slot 1', 'Slot 2', 'Slot 3', 'Slot 4', 'Slot 5'];
         const storageKeys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
         let html = '';
         for (let i = 0; i < 6; i++) {
@@ -542,7 +565,7 @@ const game = {
             html += '  <div class="save-slot-info">';
             html += '    <div class="save-slot-label">' + slotNames[i] + '</div>';
             if (isOccupied) {
-                html += '    <div class="save-slot-title">' + nodeTitle + '</div>';
+                html += '    <div class="save-slot-title">' + escHtml(nodeTitle) + '</div>';
                 html += '    <div class="save-slot-time">' + this._formatTime(save.timestamp) + '</div>';
             } else {
                 html += '    <div class="save-slot-empty">Empty</div>';
@@ -676,14 +699,18 @@ const game = {
             const rest = text.slice(i);
             let m;
             if (this._renderOnly) {
-                const sm = rest.match(/^\{set:[^}]*\}/);
-                if (sm) { this._renderOnlyWarn('set'); i += sm[0].length; continue; }
+                if (rest.startsWith('{set:')) {
+                    const sm = this._findSetEnd(text, i);
+                    if (sm) { this._renderOnlyWarn('set'); i = sm.end; continue; }
+                }
                 const um = rest.match(/^\{unset:[^}]*\}/);
                 if (um) { this._renderOnlyWarn('unset'); i += um[0].length; continue; }
                 const rm = rest.match(/^\{redirect:[^}]*\}/);
                 if (rm) { this._renderOnlyWarn('redirect'); i += rm[0].length; continue; }
                 const am = rest.match(/^\{audio:[^}]*\}/i);
                 if (am) { this._renderOnlyWarn('audio'); i += am[0].length; continue; }
+                const nm = rest.match(/^\{notify:[^}]*\}/i);
+                if (nm) { i += nm[0].length; continue; }
                 const im = rest.match(/^\{include:[^}]*\}/i);
                 if (im) { this._renderOnlyWarn('include'); i += im[0].length; continue; }
                 if (rest.startsWith('{fn:') || rest.startsWith('{endfn}')) {
@@ -896,12 +923,17 @@ const game = {
                     continue;
                 }
 			}
-			if ((m = rest.match(/^\{audio:([^}]+)\}/i))) {
-				if (this._bootSetup) { i += m[0].length; continue; }
-				this._audio.directive(m[1]);
-				i += m[0].length;
-				continue;
-			}
+ 			if ((m = rest.match(/^\{audio:([^}]+)\}/i))) {
+ 				if (this._bootSetup) { i += m[0].length; continue; }
+ 				this._audio.directive(m[1]);
+ 				i += m[0].length;
+ 				continue;
+ 			}
+ 			if ((m = rest.match(/^\{notify:([^}]+)\}/i))) {
+ 				this._notifyDirective(m[1]);
+ 				i += m[0].length;
+ 				continue;
+ 			}
 			if (rest.startsWith('{if:')) {
 				const parsed = this._parseIfBranches(text, i);
 				if (parsed) {
@@ -954,11 +986,12 @@ const game = {
         const n = text.length;
         while (j < n && depth > 0) {
             if (text[j] === '{') {
-                if (text.slice(j, j + 4) === '{if:') { depth++; j += 4; }
+                if (text.slice(j, j + 4) === '{if:') { depth++; j += 4; continue; }
                 else if (text.slice(j, j + 7) === '{endif}') {
                     depth--;
                     if (depth === 0) { endifPos = j; branches.push({ type: 'endif', tagStart: j }); }
                     j += 7;
+                    continue;
                 }
                 else if (depth === 1) {
                     if (text.slice(j, j + 8) === '{elseif:') {
@@ -1160,6 +1193,7 @@ const game = {
         if (this._helpersInstalled) return;
         this._helpersInstalled = true;
 
+        const _game = this;
         this.helper = Object.freeze({
             random(min, max) {
                 if (arguments.length === 0) throw new TypeError('helper.random() requires at least 1 argument');
@@ -1200,7 +1234,20 @@ const game = {
                 Object.keys(value).forEach(k => { copy[k] = this.clone(value[k]); });
                 return copy;
             },
-            clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+            clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); },
+            fn_exists(name) {
+                const key = String(name);
+                const fns = _game._functions;
+                if (fns[key] !== undefined) return true;
+                const lower = key.toLowerCase();
+                return Object.keys(fns).some(k => k.toLowerCase() === lower);
+            },
+            hasMacro(name) {
+                return this.fn_exists(name);
+            },
+            hasPassage(slug) {
+                return _game.nodes[String(slug)] !== undefined;
+            }
         });
 
         const guard = name => { throw new TypeError(name + ' called on null or undefined'); };
@@ -1329,8 +1376,9 @@ const game = {
         this._fnReturn = undefined;
         let ret = undefined;
         try {
-            this._processDirectives(fn.body, false);
-            ret = this._fnReturn;
+            const result = this._processDirectives(fn.body, false);
+            const text = result.text.replace(/\}\n/g, '}').trim();
+            ret = this._fnReturn !== undefined ? this._fnReturn : text;
         } finally {
             this.temp = savedTemp;
             this._fnReturn = savedFnReturn;
@@ -1400,6 +1448,7 @@ const game = {
 
         this._freshEntry = nodeId !== this.currentNodeId || this.currentNodeId == null;
         if (this._freshEntry) this.temp = {};
+        this.state._previous = this._history[this._historyIndex - 1] || null;
         const resolved = this.processDirectives(node.text || '');
         const redirectSlug = this._checkRedirects(resolved);
         if (redirectSlug) {
@@ -1504,6 +1553,11 @@ const game = {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
+        html = html.replace(/\u0000nfvar_(\d+)\u0000/g, (_, n) => {
+            const val = this._varValues[parseInt(n, 10)];
+            return val === undefined ? '' : String(val);
+        });
+
         const legacyImages = [];
         html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)(?:\{img:[^}]*\})?/g, (m) => {
             legacyImages.push(m);
@@ -1536,18 +1590,73 @@ const game = {
             return '<input type="checkbox" id="' + id + '" class="nf-checkbox"' + (checked ? ' checked' : '') + ' data-nf-type="checkbox" data-target-var="' + varName + '" data-value="' + escapedVal + '">';
         });
 
+        const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const renderRadioOption = (rparams, groupId) => {
+            const parts = rparams.split(',').map(s => s.trim());
+            const stateExpr = parts[0];
+            const varName = stateExpr.replace(/^state\./, '');
+            const value = parts[1] ? parts[1].trim() : '';
+            const checked = String(this.state[varName]) === value;
+            const escapedVal = value.replace(/"/g, '&quot;');
+            return '<input type="radio" class="nf-radio" name="' + groupId + '" value="' + escapedVal + '"' + (checked ? ' checked' : '') + ' data-nf-type="radio" data-target-var="' + varName + '">';
+        };
+
+        // Auto-group free-standing radiobutton lines into {radiogroup} blocks:
+        // consecutive options targeting the same state variable form one group.
+        // Radios already inside an explicit {radiogroup} block are left alone.
+        const bareLines = html.split('\n');
+        const bareOut = [];
+        let group = [];
+        let lastVar = null;
+        let groupDepth = 0;
+        const flush = () => {
+            if (group.length) {
+                bareOut.push('{radiogroup}\n' + group.join('\n') + '\n{endradiogroup}');
+                group = [];
+            }
+        };
+        for (const line of bareLines) {
+            const t = line.trim();
+            if (t === '') { flush(); lastVar = null; bareOut.push(line); continue; }
+            const isRadioLine = t.startsWith('{radiobutton:') && t.indexOf('}') !== -1;
+            if (isRadioLine && groupDepth === 0) {
+                const v = t.slice('{radiobutton:'.length, t.indexOf(',')).trim();
+                if (lastVar !== null && v !== lastVar) flush();
+                lastVar = v;
+                group.push(t);
+                continue;
+            }
+            flush();
+            lastVar = null;
+            bareOut.push(line);
+            const opens = (t.match(/\{radiogroup\}/g) || []).length;
+            const closes = (t.match(/\{endradiogroup\}/g) || []).length;
+            groupDepth = Math.max(0, groupDepth + opens - closes);
+        }
+        flush();
+        html = bareOut.join('\n');;
+
         html = html.replace(/\{radiogroup\}([\s\S]*?)\{endradiogroup\}/g, (match, body) => {
             const groupId = 'nf-rg-' + (this._formCounters.radiogroup++);
-            const innerHtml = body.replace(/\{radiobutton:([^}]+)\}\s*/g, (rmatch, rparams) => {
-                const parts = rparams.split(',').map(s => s.trim());
-                const stateExpr = parts[0];
-                const varName = stateExpr.replace(/^state\./, '');
-                const value = parts[1] ? parts[1].trim() : '';
-                const checked = String(this.state[varName]) === value;
-                const escapedVal = value.replace(/"/g, '&quot;');
-                return '<input type="radio" class="nf-radio" name="' + groupId + '" value="' + escapedVal + '"' + (checked ? ' checked' : '') + ' data-nf-type="radio" data-target-var="' + varName + '">';
-            });
-            return '<span class="nf-radiogroup">' + innerHtml + '</span>';
+            const options = [];
+            const tagRe = /\{radiobutton:([^}]+)\}/g;
+            let m;
+            while ((m = tagRe.exec(body)) !== null) {
+                options.push({ params: m[1], index: m.index, tagEnd: m.index + m[0].length });
+            }
+            const blocks = [];
+            for (let k = 0; k < options.length; k++) {
+                const input = renderRadioOption(options[k].params, groupId);
+                let label = options[k].params.split(',').map(s => s.trim()).slice(2)
+                    .filter(a => a !== 'autocheck').join(', ').trim();
+                if (!label) {
+                    const start = options[k].tagEnd;
+                    const end = (k + 1 < options.length) ? options[k + 1].index : body.length;
+                    label = body.slice(start, end).replace(/\s*\n+\s*/g, ' ').trim();
+                }
+                blocks.push('<label class="nf-radio-option">' + input + (label ? '<span class="nf-radio-label">' + esc(label) + '</span>' : '') + '</label>');
+            }
+            return '<span class="nf-radiogroup">' + blocks.join('') + '</span>';
         });
 
         html = html.replace(/\{textarea:([^}]+)\}/g, (match, params) => {
@@ -1724,10 +1833,6 @@ const game = {
             '</div>';
         });
         html = html.replace(/\u0000nflegacy_(\d+)\u0000/g, (_, n) => legacyImages[parseInt(n, 10)]);
-        html = html.replace(/\u0000nfvar_(\d+)\u0000/g, (_, n) => {
-            const val = this._varValues[parseInt(n, 10)];
-            return val === undefined ? '' : String(val);
-        });
         html = html.replace(/\u0000nfaction_(\d+)\u0000/g, (_, n) => {
             const link = (this._actionBlockLinks || [])[parseInt(n, 10)];
             return link === undefined ? '' : link;

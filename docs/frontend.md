@@ -125,9 +125,9 @@ Located in `#sidebar > #inspector-panel`. Shown/hidden based on node selection.
 | Title (line 510) | `passage-title` | Text input for passage title |
 | Slug (line 513) | `passage-id` | Auto-generated from title; validated on blur via `validateSlugOnBlur()` |
 | Error display (line 514) | `passage-id-error` | Hidden `<p>` for slug validation errors |
-| Start checkbox (line 517) | `passage-is-start` | `onchange="toggleStartNode(this.checked)"` — marks the starting node (hidden for `side_panel`) |
-| Utility checkbox (line 537) | `passage-is-utility` | `onchange="toggleUtilityNode(this.checked)"` — content-only node spliced via `{include:}`, exempt from reachability warnings (hidden for `side_panel`, no exclusivity) |
-| Function checkbox | `passage-is-fn` | `onchange="toggleFnNode(this.checked)"` — marks the node as a `{fn:}` catalogue (hidden for `side_panel`, no exclusivity). When checked, the Choices + On Enter panels are swapped for the Functions (catalogue) pane |
+| Start checkbox (line 517) | `passage-is-start` | `onchange="toggleStartNode(this.checked)"` — marks the starting node (hidden for `side_panel` and `setup`) |
+| Utility checkbox (line 537) | `passage-is-utility` | `onchange="toggleUtilityNode(this.checked)"` — content-only node spliced via `{include:}`, exempt from reachability warnings (hidden for `side_panel`; `setup` is forced to `is_utility: true` and hidden, no exclusivity) |
+| Function checkbox | `passage-is-fn` | `onchange="toggleFnNode(this.checked)"` — marks the node as a `{fn:}` catalogue (hidden for `side_panel` and `setup`, no exclusivity). When checked, the Choices + On Enter panels are swapped for the Functions (catalogue) pane |
 
 ### 4.2 Markdown Toolbar (lines 516–525)
 

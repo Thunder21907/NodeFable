@@ -336,8 +336,8 @@ export function setupContextMenu() {
                 <button class="ctx-item danger" data-ctx-action="deleteGroup">🗑 Delete Group</button>
             `;
         } else if (isNormalNode) {
-            // Don't show context menu for side_panel
-            if (data.slug === 'side_panel') return;
+            // Don't show context menu for reserved system nodes (side_panel, setup)
+            if (data.slug === 'side_panel' || data.slug === 'setup') return;
             menuEl.innerHTML = `
                 <button class="ctx-item" data-ctx-action="collapseGroup">⬆ Collapse Group</button>
                 <div class="ctx-separator"></div>

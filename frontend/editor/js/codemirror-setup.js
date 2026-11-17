@@ -42,6 +42,8 @@ CodeMirror.defineMode('nodefable', function (config) {
             if (stream.match(/^\{(table|tr|td|bar|endtable|endtr|endtd)\b[^}]*\}/i)) return 'keyword';
             // {audio:...}
             if (stream.match(/\{audio:[^}]*\}/i)) return 'keyword';
+            // {notify:...}
+            if (stream.match(/\{notify:[^}]*\}/i)) return 'keyword';
             // {action:...} / {endaction}
             if (stream.match(/\{action:[^}]*\}/i)) return 'keyword';
             if (stream.match(/\{endaction\}/i)) return 'keyword';
@@ -109,7 +111,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
         // helper. -> helper methods; temp. has no editor store (runtime-only), so no names.
         let names;
         if (scopeWord === 'helper') {
-            names = ['random', 'either', 'clone', 'clamp'];
+            names = ['random', 'either', 'clone', 'clamp', 'fn_exists', 'hasMacro', 'hasPassage'];
         } else if (scopeWord === 'setup') {
             names = Object.keys(state.setupVariables || {});
         } else if (scopeWord === 'state') {
@@ -158,7 +160,7 @@ CodeMirror.registerHelper('hint', 'nodeFableHint', function (cm) {
             'set:', 'redirect:', 'random:',
             'textfield:', 'textarea:', 'number:', 'checkbox:', 'dropdown:', 'radiogroup', 'radiobutton:', 'endradiogroup',
             'print:', 'wait:', 'endwait', 'dialogue:', 'enddialogue', 'img:', 'video:',
-            'audio:', 'action:', 'endaction', 'include:', 'live:', 'endlive',
+            'audio:', 'notify:', 'action:', 'endaction', 'include:', 'live:', 'endlive',
             'table:', 'tr:', 'td:', 'bar:', 'endtable', 'endtr', 'endtd',
             'fn:', 'endfn', 'return:', 'call:',
             'true', 'false', 'notify(', 'game.newGame()'];

@@ -329,7 +329,7 @@ def _save_manifest_and_groups(name: str, variables: dict, nodes: list, groups_me
     grouped: dict[str, list] = {}
 
     for n in nodes:
-        gid = n.get("group", "side_panel") if isinstance(n, dict) else getattr(n, "group", "side_panel")
+        gid = (n.get("group") or "side_panel") if isinstance(n, dict) else (getattr(n, "group", None) or "side_panel")
         if isinstance(n, dict):
             sid = n.get("id", "")
         else:

@@ -19,7 +19,7 @@ import {
 } from './js/node-editor.js';
 import { changeNodeGroup, _repositionPortalOutputs } from './js/group-manager.js';
 import { setupDelegation, setupKeyboardShortcuts } from './js/event-delegation.js';
-import { ensureSidePanelNode, setupEditorEvents } from './js/graph-engine.js';
+import { ensureSidePanelNode, ensureSetupNode, setupEditorEvents } from './js/graph-engine.js';
 
 // Expose functions required by inline HTML event attributes (onclick, onchange, onblur).
 window.toggleOnEnter = toggleOnEnter;
@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const nodeEl = document.getElementById('node-' + state.selectedNodeId);
             if (nodeEl) {
                 const contentEl = nodeEl.querySelector('.drawflow_content_node');
-                if (contentEl) contentEl.innerHTML = title;
+                if (contentEl) contentEl.textContent = title;
             }
         }
     });
@@ -150,4 +150,5 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     setTimeout(ensureSidePanelNode, 100);
+    setTimeout(ensureSetupNode, 100);
 });

@@ -215,7 +215,13 @@ export function renderGroupNodeList(groupId) {
 export function populateGroupDropdown() {
     const select = document.getElementById('passage-group');
     if (!select) return;
-    const currentGroup = state.nodesData[state.selectedNodeId] ? state.nodesData[state.selectedNodeId].group || '' : '';
+    const selData = state.nodesData[state.selectedNodeId];
+    const currentGroup = selData ? selData.group || '' : '';
+
+    // Reserved system nodes (side_panel, setup) always live in the side_panel
+    // group; their group dropdown is disabled.
+    const isReserved = !!selData && (selData.slug === 'side_panel' || selData.slug === 'setup');
+    select.disabled = !!isReserved;
 
     // Build options from manifest
     let html = '<option value="">— Ungrouped —</option>';
@@ -234,6 +240,10 @@ export async function changeNodeGroup(newGroup) {
     if (!state.selectedNodeId) return;
     const data = state.nodesData[state.selectedNodeId];
     if (!data || data.isPortal) return;
+    if (data.slug === 'side_panel' || data.slug === 'setup') {
+        showToast((data.slug === 'setup' ? 'Setup' : 'Side Panel') + ' is locked to the side_panel group');
+        return;
+    }
     const oldGroup = data.group || '';
     data.group = newGroup || '';
     showToast('Node assigned to group: ' + (newGroup || 'none'));
@@ -476,10 +486,14 @@ export async function moveToGroupFromPortal(portalNodeId) {
     try {
         state.isLoading = true;
 
-        // Remove all loaded non-side_panel nodes and portals except the target portal
+        // Remove all loaded nodes that are not part of the persistent side_panel
+        // group and are not the target portal. The side_panel group is always
+        // loaded; it hosts both the `side_panel` and `setup` reserved nodes, so
+        // the check must be group-based, not slug-based (the setup node has its
+        // own slug but lives in the side_panel group).
         const idsToRemove = [];
         for (const [idStr, nd] of Object.entries(state.nodesData)) {
-            if (nd.slug === 'side_panel') continue;
+            if ((nd.group || 'side_panel') === 'side_panel') continue;
             if (nd.isPortal && nd.portalGroupId === targetGroupId) continue;
             idsToRemove.push(idStr);
         }
@@ -487,7 +501,12 @@ export async function moveToGroupFromPortal(portalNodeId) {
             state.editor.removeNodeId('node-' + idStr);
             delete state.nodesData[idStr];
         }
-        state.slugToNodeId = { side_panel: state.slugToNodeId['side_panel'] };
+        // Rebuild the slug index from the nodes that stayed on canvas so
+        // reserved slugs (side_panel, setup) keep their mappings.
+        state.slugToNodeId = {};
+        for (const [idStr, nd] of Object.entries(state.nodesData)) {
+            if (nd.slug) state.slugToNodeId[nd.slug] = parseInt(idStr);
+        }
         state.loadedGroupIds = new Set();
         // portalNodeIds is cleared by loadGroupFromPortal for the target;
         // clear the rest now.

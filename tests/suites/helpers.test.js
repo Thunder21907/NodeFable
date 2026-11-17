@@ -195,4 +195,47 @@ test('print: helpers are an expression scope', () => {
     if (!/^<p>[12]<\/p>$/.test(out)) throw new Error('helper must evaluate in print, got: ' + out);
 });
 
+test('helper.hasPassage: returns true for existing passage and false for missing without throwing', () => {
+    const { game } = freshGame({
+        nodes: [{ id: 'start', title: 'Start', text: 'Hello', choices: [], is_start: true }]
+    });
+    if (game.helper.hasPassage('start') !== true) throw new Error('expected hasPassage("start") to be true');
+    if (game.helper.hasPassage('no_such_node') !== false) throw new Error('expected hasPassage("no_such_node") to be false');
+});
+
+test('helper.fn_exists & helper.hasMacro: exact and case-insensitive match for camelCase function', () => {
+    const { game } = freshGame({
+        nodes: [
+            { id: 'fn_node', title: 'Functions', text: '{fn: myHelperFn, x}{return: temp.x}{endfn}', choices: [], is_function: true }
+        ]
+    });
+    for (const q of ['myHelperFn', 'myhelperfn', 'MYHELPERFN']) {
+        if (game.helper.fn_exists(q) !== true) throw new Error('expected fn_exists(' + JSON.stringify(q) + ') to be true');
+        if (game.helper.hasMacro(q) !== true) throw new Error('expected hasMacro(' + JSON.stringify(q) + ') to be true');
+    }
+    if (game.helper.fn_exists('unknownFn') !== false) throw new Error('expected fn_exists("unknownFn") to be false');
+    if (game.helper.hasMacro('unknownFn') !== false) throw new Error('expected hasMacro("unknownFn") to be false');
+});
+
+test('renderSaveSlots: escapes HTML special characters in passage title', () => {
+    const { game, env } = freshGame({
+        nodes: [
+            { id: 'xss', title: '<img src=x onerror=alert(1)>', text: 'Hi', choices: [], is_start: true }
+        ]
+    });
+    game.render('xss');
+    game.saveToSlot(1);
+    const slotsEl = env.__document.getElementById('save-slots');
+    if (slotsEl.innerHTML.includes('<img')) {
+        throw new Error('renderSaveSlots must escape HTML in passage title, got: ' + slotsEl.innerHTML);
+    }
+    if (!slotsEl.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;')) {
+        throw new Error('expected escaped passage title in save-slots HTML, got: ' + slotsEl.innerHTML);
+    }
+    const titleEl = slotsEl.querySelector('.save-slot-title');
+    if (!titleEl || titleEl.children.length !== 0) {
+        throw new Error('expected .save-slot-title to contain plain text without injected child elements');
+    }
+});
+
 module.exports = { run() { return section('Spec 34 — helper + prototypes + brace-aware set') && 0; } };

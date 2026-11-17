@@ -30,6 +30,9 @@ PASSAGE_RE = re.compile(
 
 ENUM_ATTR = re.compile(r"\b(?P<key>name|pid|tags|position|size)=\"(?P<val>[^\"]*)\"", re.IGNORECASE)
 
+# Twine exports tags either comma- or whitespace-separated.
+_TAGS_SPLIT_RE = re.compile(r"[,\s]+")
+
 
 class Passage:
     """One raw passage from a Twine/SugarCube export."""
@@ -61,7 +64,7 @@ def _parse_attrs(attrs: str):
         key = m.group("key").lower()
         val = m.group("val")
         if key == "tags":
-            val = [t for t in val.split(",") if t] if val else []
+            val = [t for t in _TAGS_SPLIT_RE.split(val) if t] if val else []
         elif key == "position":
             val = _pair_coords(val)
         elif key == "size":

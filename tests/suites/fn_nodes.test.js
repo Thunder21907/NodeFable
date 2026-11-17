@@ -80,12 +80,12 @@ test('{return:} early-exit discards body text', () => {
     if (out !== '<p>8</p>') throw new Error('body text leaked: ' + out);
 });
 
-test('undefined return renders nothing for {call:}', () => {
+test('fn body text is returned and rendered for {call:}', () => {
     const { game } = freshGame({ nodes: [
         { id: 'fncat', title: 'fn', text: '{fn: voidfn}\njunk\n{endfn}', choices: [], is_function: true }
     ]});
     const out = game.renderContent(game.processDirectives('A{call: voidfn}B'), []);
-    if (out !== '<p>AB</p>') throw new Error('undefined return must render nothing: ' + out);
+    if (out !== '<p>AjunkB</p>') throw new Error('fn body text should render: ' + out);
 });
 
 test('unknown function renders nothing with a warn', () => {

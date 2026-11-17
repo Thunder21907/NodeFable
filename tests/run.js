@@ -29,24 +29,40 @@ function syntaxCheckEngine() {
     }
 }
 
-function syntaxCheckEditorModule() {
-    const code = fs.readFileSync(path.join(ROOT, 'frontend', 'editor', 'js', 'codemirror-setup.js'), 'utf8');
+function checkModuleSyntax(relPath) {
+    const code = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
     const r = spawnSync(process.execPath, ['--input-type=module', '--check'], {
         input: code,
         encoding: 'utf8',
     });
     if (r.status !== 0) {
-        console.error('SYNTAX ERROR in frontend/editor/js/codemirror-setup.js');
+        console.error('SYNTAX ERROR in ' + relPath);
         console.error(r.stderr || r.stdout);
         process.exit(1);
     }
+}
+
+function syntaxCheckEditorModule() {
+    checkModuleSyntax('frontend/editor/js/codemirror-setup.js');
     console.log('node --check codemirror-setup.js: OK');
+
+    const jsDir = path.join(ROOT, 'frontend', 'editor', 'js');
+    const jsFiles = fs.readdirSync(jsDir)
+        .filter((f) => f.endsWith('.js') && !f.startsWith('backup_') && f !== 'codemirror-setup.js')
+        .sort()
+        .map((f) => 'frontend/editor/js/' + f);
+
+    const otherModules = ['frontend/editor/app.js', ...jsFiles];
+    for (const relPath of otherModules) {
+        checkModuleSyntax(relPath);
+    }
+    console.log(`node --check editor modules (${otherModules.length + 1} files): OK`);
 }
 
 syntaxCheckEngine();
 syntaxCheckEditorModule();
 
-const suites = ['wait', 'live_region', 'audio', 'regression', 'back', 'tables', 'setup', 'helpers', 'objects', 'fn_nodes'];
+const suites = ['wait', 'live_region', 'audio', 'regression', 'back', 'tables', 'setup', 'helpers', 'objects', 'fn_nodes', 'nested_conditionals', 'radios', 'editor_slug'];
 for (const name of suites) {
     require('./suites/' + name + '.test.js');
 }

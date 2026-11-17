@@ -27,7 +27,7 @@ export function validateOrphans() {
     }
     if (!startSlug) {
         for (const [id, data] of Object.entries(state.nodesData)) {
-            if (data.slug !== 'side_panel' && !data.is_function) { startSlug = data.slug; break; }
+            if (data.slug !== 'side_panel' && data.slug !== 'setup' && !data.is_function) { startSlug = data.slug; break; }
         }
     }
     if (!startSlug) return;

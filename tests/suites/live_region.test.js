@@ -194,4 +194,25 @@ test('render-only mode consumes inert directives with one warn each', () => {
     if (!out.includes('txt')) throw new Error('render-only must keep passage text');
 });
 
+test('live region skips brace-nested {set:} during initial _renderOnly pass without leaking }', () => {
+    ctx = freshGame();
+    ctx.game.nodes['lr_obj'] = {
+        id: 'lr_obj',
+        text: '{live: 100}{set: state.obj = { a: 1, b: 2 }}Hello{endlive}',
+        choices: [], on_enter: null,
+    };
+    ctx.game.render('lr_obj');
+    if (ctx.game.state.obj !== undefined) {
+        throw new Error('render-only live region must not execute {set:}, got: ' + JSON.stringify(ctx.game.state.obj));
+    }
+    const el = getLiveRegion(ctx.env.document, 0);
+    if (!el) throw new Error('live region element must exist');
+    if (el.innerHTML.includes('}')) {
+        throw new Error('brace-nested {set:} leaked } into live region HTML: ' + el.innerHTML);
+    }
+    if (!el.textContent.includes('Hello')) {
+        throw new Error('live region should render Hello, got: ' + el.textContent);
+    }
+});
+
 module.exports = { run() { return summary(); } };

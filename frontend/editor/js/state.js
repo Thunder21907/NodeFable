@@ -32,8 +32,7 @@ export const state = {
     loadedGroupIds: new Set(),
     editingPortalNodeId: null,
     collapsedGroupsData: {},
-    portalOutputSvg: {},
-    collapsingSlugs: new Set()
+    portalOutputSvg: {}
 };
 
 export function slugify(text) {

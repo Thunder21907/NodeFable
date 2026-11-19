@@ -1,10 +1,11 @@
 // frontend/editor/app.js — ES module entrypoint
-// Initializes Drawflow + CodeMirror and binds window-level handlers required
+// Initializes CanvasEngine + CodeMirror and binds window-level handlers required
 // by inline HTML attributes (onclick/onchange/onblur).
 
 import { state } from './js/state.js';
+import { CanvasEngine } from './js/canvas-engine.js';
 import './js/codemirror-setup.js';
-import { validateSlugOnBlur } from './js/ui-utils.js';
+import { validateSlugOnBlur, toggleDrawer, closeDrawers } from './js/ui-utils.js';
 import { undo, redo } from './js/history.js';
 import { toggleSpellcheck, insertMarkdown } from './js/codemirror-setup.js';
 import { insertImage } from './js/asset-explorer.js';
@@ -17,7 +18,7 @@ import {
     updateOnEnterField,
     saveCurrentContent
 } from './js/node-editor.js';
-import { changeNodeGroup, _repositionPortalOutputs } from './js/group-manager.js';
+import { changeNodeGroup } from './js/group-manager.js';
 import { setupDelegation, setupKeyboardShortcuts } from './js/event-delegation.js';
 import { ensureSidePanelNode, ensureSetupNode, setupEditorEvents } from './js/graph-engine.js';
 
@@ -40,21 +41,27 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("NodeFable Canvas Initialized");
     const container = document.getElementById('tab-graph');
 
-    state.editor = new Drawflow(container);
+    state.editor = new CanvasEngine(container);
     state.editor.start();
 
-    // Throttle updateConnectionNodes: last-call-wins per frame
+    // Coalesce updateConnectionNodes per frame. Every node requested during a
+    // frame is updated once in the next frame (a single shared pending id would
+    // drop all but the last node, e.g. when undo re-adds many connections).
     const origUpdate = state.editor.updateConnectionNodes.bind(state.editor);
-    let updatePending = null;
+    const pendingNodeIds = new Set();
+    let updateFrame = null;
     state.editor.updateConnectionNodes = function (nodeId) {
         if (state.isLoading) {
             origUpdate(nodeId);
             return;
         }
-        if (updatePending) cancelAnimationFrame(updatePending);
-        updatePending = requestAnimationFrame(() => {
-            updatePending = null;
-            origUpdate(nodeId);
+        pendingNodeIds.add(String(nodeId).replace(/^node-/, ''));
+        if (updateFrame !== null) return;
+        updateFrame = requestAnimationFrame(() => {
+            updateFrame = null;
+            const ids = Array.from(pendingNodeIds);
+            pendingNodeIds.clear();
+            for (const id of ids) origUpdate('node-' + id);
         });
     };
 
@@ -63,22 +70,32 @@ document.addEventListener('DOMContentLoaded', () => {
     state.editor.zoom_value = 0.05;
     state.editor.curvature = 0.3;
 
-    console.log("Drawflow engine ready.");
+    console.log("Canvas engine ready.");
     setupEditorEvents();
 
-    // Fix: Drawflow panning fails when clicking on container gap
-    // (classList[0] is "tab-content", not "drawflow"/"parent-drawflow")
-    container.addEventListener('mousedown', (e) => {
-        if (e.button === 0 && !state.editor.editor_selected && e.target === container) {
-            state.editor.editor_selected = true;
-        }
-    });
+    // Floating on-screen canvas zoom controls
+    const zoomControls = document.getElementById('canvas-zoom-controls');
+    if (zoomControls) {
+        zoomControls.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-canvas-zoom]');
+            if (!btn) return;
+            const action = btn.dataset.canvasZoom;
+            if (action === 'in') state.editor.zoom_in();
+            else if (action === 'out') state.editor.zoom_out();
+            else if (action === 'reset') state.editor.zoom_reset();
+            else if (action === 'fit') state.editor.zoomToFit();
+        });
+    }
 
-    // Reposition portal output lines on zoom
-    container.addEventListener('wheel', (e) => {
-        if (e.ctrlKey || e.metaKey) {
-            requestAnimationFrame(() => _repositionPortalOutputs());
-        }
+    // Responsive side drawers (vars & inspector) for <=1024px viewports
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    bind('toggle-vars-drawer', () => toggleDrawer('var-panel'));
+    bind('toggle-inspector-drawer', () => toggleDrawer('sidebar'));
+    bind('drawer-backdrop', closeDrawers);
+    bind('close-vars-drawer', closeDrawers);
+    bind('close-inspector-drawer', closeDrawers);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeDrawers();
     });
 
     setupDelegation();

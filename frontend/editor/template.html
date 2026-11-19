@@ -2,30 +2,41 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#141414">
 <title>Story Game</title>
 <link rel="stylesheet" href="template_styles.css">
 </head>
 <body>
 <div id="app">
-    <aside id="side-panel">
+    <aside id="side-panel" aria-label="Status and menu">
         <div id="nav-row">
-            <button id="nav-back" onclick="game.goBack()" disabled><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 10L8 14L6 14L-2.62268e-07 8L6 2L8 2L8 6L16 6L16 10L8 10Z"/></svg></button>
-            <button id="nav-forward" onclick="game.goForward()" disabled><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 6L8 2L10 2L16 8L10 14L8 14L8 10L-1.74845e-07 10L-3.01991e-07 6L8 6Z"/></svg></button>
+            <button id="nav-back" onclick="game.goBack()" disabled aria-label="Back" title="Back"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 10L8 14L6 14L-2.62268e-07 8L6 2L8 2L8 6L16 6L16 10L8 10Z"/></svg></button>
+            <button id="nav-forward" onclick="game.goForward()" disabled aria-label="Forward" title="Forward"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 6L8 2L10 2L16 8L10 14L8 14L8 10L-1.74845e-07 10L-3.01991e-07 6L8 6Z"/></svg></button>
         </div>
         <div id="side-panel-content"></div>
         <button id="new-game-btn" onclick="game.newGame()">New Game</button>
         <button id="save-load-btn" onclick="game.showSaveLoad()">Save / Load</button>
     </aside>
+    <div id="side-panel-backdrop" onclick="game.closeMobilePanel()"></div>
     <main id="main-panel">
+        <div id="mobile-bar">
+            <button id="mobile-menu-btn" type="button" onclick="game.toggleMobilePanel()" aria-label="Toggle status panel" aria-controls="side-panel" aria-expanded="false">&#9776; Status</button>
+            <div id="mobile-nav-row">
+                <button id="mobile-nav-back" type="button" onclick="game.goBack()" disabled aria-label="Back" title="Back"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 10L8 14L6 14L-2.62268e-07 8L6 2L8 2L8 6L16 6L16 10L8 10Z"/></svg></button>
+                <button id="mobile-nav-forward" type="button" onclick="game.goForward()" disabled aria-label="Forward" title="Forward"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 6L8 2L10 2L16 8L10 14L8 14L8 10L-1.74845e-07 10L-3.01991e-07 6L8 6Z"/></svg></button>
+            </div>
+            <button id="mobile-save-btn" type="button" onclick="game.showSaveLoad()" aria-label="Save or Load Game">Save / Load</button>
+        </div>
         <div id="main-scroll">
             <div id="passage-content"></div>
         </div>
     </main>
 
     <div id="save-load-overlay" style="display:none;">
-        <div id="save-load-modal">
-            <h3>Save / Load Game</h3>
+        <div id="save-load-modal" role="dialog" aria-modal="true" aria-labelledby="save-load-title">
+            <h3 id="save-load-title">Save / Load Game</h3>
             <div id="save-slots"></div>
             <button id="save-load-close" onclick="game.hideSaveLoad()">Close</button>
         </div>
@@ -77,6 +88,9 @@ const game = {
                 if (!track) {
                     try {
                         track = new Audio(url);
+                        // Preview inside the app: assets come from the nfasset://
+                        // scheme; request them in CORS mode (see _assetCorsAttr).
+                        if (window.NF_ASSET_CORS) track.crossOrigin = 'anonymous';
                         track.preload = 'metadata';
                     } catch (e) { return; }
                     this.tracks[url] = track;
@@ -538,6 +552,7 @@ const game = {
 	},
 
     showSaveLoad() {
+        this.closeMobilePanel();
         this.renderSaveSlots();
         document.getElementById('save-load-overlay').style.display = 'flex';
     },
@@ -680,6 +695,29 @@ const game = {
         const forwardBtn = document.getElementById('nav-forward');
         if (backBtn) backBtn.disabled = this._historyIndex <= 0;
         if (forwardBtn) forwardBtn.disabled = this._historyIndex >= this._history.length - 1;
+        const mBackBtn = document.getElementById('mobile-nav-back');
+        const mForwardBtn = document.getElementById('mobile-nav-forward');
+        if (mBackBtn) mBackBtn.disabled = this._historyIndex <= 0;
+        if (mForwardBtn) mForwardBtn.disabled = this._historyIndex >= this._history.length - 1;
+    },
+
+    toggleMobilePanel() {
+        const panel = document.getElementById('side-panel');
+        const backdrop = document.getElementById('side-panel-backdrop');
+        if (!panel) return;
+        const isOpen = panel.classList.toggle('mobile-open');
+        if (backdrop) backdrop.classList.toggle('mobile-open', isOpen);
+        const btn = document.getElementById('mobile-menu-btn');
+        if (btn) btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    },
+
+    closeMobilePanel() {
+        const panel = document.getElementById('side-panel');
+        const backdrop = document.getElementById('side-panel-backdrop');
+        if (panel) panel.classList.remove('mobile-open');
+        if (backdrop) backdrop.classList.remove('mobile-open');
+        const btn = document.getElementById('mobile-menu-btn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
     },
 
     processDirectives(text) {
@@ -1434,6 +1472,10 @@ const game = {
     },
 
     render(nodeId) {
+        // Navigating to another passage closes the mobile HUD drawer so the new
+        // passage is visible; in-place re-renders (HUD actions, form inputs)
+        // keep it open.
+        if (nodeId !== this.currentNodeId) this.closeMobilePanel();
         this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
         this._actionBlocks = [];
         this._actionBlockLinks = [];
@@ -1481,6 +1523,27 @@ const game = {
 		this._audio.stopUndeclared();
 		this.runWaitSequences();
 		this.refreshLiveRegions();
+    },
+
+    // Inline size style for {img:} / {video:}. Media never exceeds its
+    // container; with both w and h the box keeps the w:h aspect ratio while it
+    // shrinks on narrow (phone) screens instead of being squashed, and with
+    // only h the picture is letterboxed rather than distorted.
+    // The in-app preview sets window.NF_ASSET_CORS: its assets are served by
+    // the app's nfasset:// scheme, which WebKit only lets an http:// page
+    // (e.g. the `tauri dev` server) display when requested in CORS mode (the
+    // scheme answers with Access-Control-Allow-Origin: *). Exported games
+    // never set the flag, so their markup is unchanged.
+    _assetCorsAttr() {
+        return window.NF_ASSET_CORS ? ' crossorigin="anonymous"' : '';
+    },
+
+    _mediaSizeStyle(o) {
+        const w = parseFloat(o.w), h = parseFloat(o.h);
+        if (w > 0 && h > 0) return 'max-width:100%;width:' + w + 'px;height:auto;aspect-ratio:' + w + ' / ' + h + ';object-fit:contain';
+        if (w > 0) return 'max-width:100%;width:' + w + 'px;height:auto';
+        if (h > 0) return 'max-width:100%;height:' + h + 'px;object-fit:contain';
+        return 'max-width:100%;height:auto';
     },
 
     _parseMediaOptions(params) {
@@ -1699,20 +1762,14 @@ const game = {
         html = html.replace(/\{img:([^}]+)\}/g, (match, params) => {
             const o = this._parseMediaOptions(params);
             const alt = o.alt ? ' alt="' + o.alt.replace(/"/g, '&quot;') + '"' : '';
-            return '<img src="' + o.target + '"' + alt + ' style="max-width:100%;height:auto'
-                + (o.w ? ';width:' + o.w + 'px' : '')
-                + (o.h ? ';height:' + o.h + 'px' : '')
-                + '">';
+            return '<img src="' + o.target + '"' + alt + this._assetCorsAttr() + ' style="' + this._mediaSizeStyle(o) + '">';
         });
 
         html = html.replace(/\{video:([^}]+)\}/g, (match, params) => {
             const o = this._parseMediaOptions(params);
             const aria = o.alt ? ' aria-label="' + o.alt.replace(/"/g, '&quot;') + '"' : '';
-            return '<video src="' + o.target + '" class="nf-video" controls preload="metadata"' + aria
-                + ' style="max-width:100%;height:auto'
-                + (o.w ? ';width:' + o.w + 'px' : '')
-                + (o.h ? ';height:' + o.h + 'px' : '')
-                + '"'
+            return '<video src="' + o.target + '" class="nf-video" controls preload="metadata"' + aria + this._assetCorsAttr()
+                + ' style="' + this._mediaSizeStyle(o) + '"'
                 + (o.autoplay ? ' autoplay' : '')
                 + (o.repeat ? ' loop' : '')
                 + (o.mute ? ' muted' : '')

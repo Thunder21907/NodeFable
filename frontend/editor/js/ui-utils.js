@@ -71,3 +71,39 @@ export function validateSlugOnBlur() {
         return true;
     }
 }
+
+// ── Responsive drawers (≤1024px) ─────────────────────────────────
+// #var-panel (left) and #sidebar (right) slide in as drawers with a shared
+// #drawer-backdrop. Only one drawer is open at a time.
+
+export const DRAWER_BREAKPOINT = 1024;
+
+export function isDrawerLayout() {
+    return typeof window !== 'undefined' && window.innerWidth <= DRAWER_BREAKPOINT;
+}
+
+export function closeDrawers() {
+    const varPanel = document.getElementById('var-panel');
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('drawer-backdrop');
+    if (varPanel) varPanel.classList.remove('drawer-open');
+    if (sidebar) sidebar.classList.remove('drawer-open');
+    if (backdrop) backdrop.classList.add('is-hidden');
+}
+
+// id: 'var-panel' | 'sidebar'
+export function openDrawer(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    closeDrawers();
+    el.classList.add('drawer-open');
+    const backdrop = document.getElementById('drawer-backdrop');
+    if (backdrop) backdrop.classList.remove('is-hidden');
+}
+
+export function toggleDrawer(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.classList.contains('drawer-open')) closeDrawers();
+    else openDrawer(id);
+}

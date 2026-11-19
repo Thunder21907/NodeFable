@@ -4,7 +4,8 @@ import { state } from './state.js';
 import { escapeHtml, showToast, showLoader, hideLoader } from './ui-utils.js';
 import { validateDeadEnds, validateOrphans } from './validation.js';
 import { snapshotState } from './history.js';
-import { updateStartBadgeOnCanvas, updateUtilityBadgeOnCanvas, closePassageEditor } from './node-editor.js';
+import { updateStartBadgeOnCanvas, updateUtilityBadgeOnCanvas, updateFnBadgeOnCanvas, closePassageEditor } from './node-editor.js';
+import { MAX_PORTAL_ROWS } from './constants.js';
 import { api } from './api.js';
 
 export function addGroup() {
@@ -33,6 +34,7 @@ export function addGroup() {
         node_count: 0,
         slug_ids: []
     });
+    populateGroupDropdown();
 
     // Create portal node on canvas
     const posX = Math.floor(Math.random() * 400) + 300;
@@ -91,6 +93,9 @@ export function openGroupEditor(nodeId) {
     const idInput = document.getElementById('group-editor-id');
     const labelInput = document.getElementById('group-editor-label');
     const saveBtn = document.getElementById('group-editor-save');
+    const loadBtn = document.getElementById('group-editor-load');
+    const moveBtn = document.getElementById('group-editor-move');
+    const deleteBtn = document.getElementById('group-editor-delete');
 
     idInput.onblur = null;
     labelInput.onblur = null;
@@ -99,6 +104,9 @@ export function openGroupEditor(nodeId) {
     idInput.onblur = () => saveGroupEditor();
     labelInput.onblur = () => saveGroupEditor();
     saveBtn.onclick = () => saveGroupEditor();
+    if (loadBtn) loadBtn.onclick = () => loadGroupFromPortal(nodeId);
+    if (moveBtn) moveBtn.onclick = () => moveToGroupFromPortal(nodeId);
+    if (deleteBtn) deleteBtn.onclick = () => deleteGroupFromPortal(nodeId);
 
     // Render the node list
     renderGroupNodeList(groupId);
@@ -128,10 +136,10 @@ export function saveGroupEditor() {
     state.nodesData[nid].title = effectiveLabel;
 
     // Update the node title on the canvas
-    const nodeEl = document.querySelector(`[data-id="${nid}"] .drawflow-node .node-title`);
-    if (nodeEl) {
+    const contentEl = document.querySelector(`#node-${nid} .drawflow_content_node`);
+    if (contentEl && (!data.portalSlugIds || data.portalSlugIds.length === 0)) {
         const count = _getGroupNodeIds(oldGroupId).length;
-        nodeEl.textContent = effectiveLabel + ' (' + count + ' nodes)';
+        contentEl.textContent = effectiveLabel + ' (' + count + ' nodes)';
     }
 
     // Update manifest
@@ -249,6 +257,18 @@ export async function changeNodeGroup(newGroup) {
     data.group = newGroup || '';
     showToast('Node assigned to group: ' + (newGroup || 'none'));
     _syncGroupMembership(data.slug, oldGroup, newGroup);
+    _setupNodeCollapseButton(state.selectedNodeId);
+
+    const collapseGroupBtn = document.getElementById('passage-collapse-group-btn');
+    if (collapseGroupBtn) {
+        if (newGroup && newGroup !== 'side_panel') {
+            collapseGroupBtn.classList.remove('is-hidden');
+            collapseGroupBtn.onclick = () => collapseGroup(newGroup);
+        } else {
+            collapseGroupBtn.classList.add('is-hidden');
+            collapseGroupBtn.onclick = null;
+        }
+    }
 
     // A group with nodes on canvas is "loaded" — it must not have a portal stub.
     if (newGroup && state.portalNodeIds[newGroup]) {
@@ -312,11 +332,27 @@ function _removePortalNode(portalNodeId) {
     state.editor.removeNodeId('node-' + portalNodeId);
     delete state.nodesData[portalNodeId];
     delete state.portalNodeIds[groupId];
+    _closeEditorsFor(portalNodeId);
 
     // Refresh portal output lines for remaining portals
     for (const [pid] of Object.entries(state.portalOutputSvg)) {
         _renderPortalOutputs(parseInt(pid));
     }
+}
+
+// Close the inspector if it is showing a portal/node that no longer exists.
+function _closeEditorsFor(nodeId) {
+    if (state.selectedNodeId === nodeId || state.editingPortalNodeId === nodeId) {
+        state.editingPortalNodeId = null;
+        closePassageEditor();
+    }
+}
+
+function _removePortalLines(portalNodeId) {
+    for (const el of state.portalOutputSvg[portalNodeId] || []) {
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+    delete state.portalOutputSvg[portalNodeId];
 }
 
 function _getGroupNodeIds(groupId) {
@@ -343,7 +379,10 @@ export async function loadGroupFromPortal(portalNodeId) {
             nodes = state.collapsedGroupsData[groupId];
             delete state.collapsedGroupsData[groupId];
         } else {
-            if (!state.currentProjectName) return;
+            if (!state.currentProjectName) {
+                showToast('Save the project or assign nodes to "' + (data.portalGroupLabel || groupId) + '" before loading');
+                return;
+            }
             const project = await api.loadProject(state.currentProjectName, [groupId]);
             nodes = project.nodes || [];
         }
@@ -457,6 +496,7 @@ export async function loadGroupFromPortal(portalNodeId) {
         for (const nodeIdStr of Object.keys(state.nodesData)) {
             updateStartBadgeOnCanvas(parseInt(nodeIdStr));
             updateUtilityBadgeOnCanvas(parseInt(nodeIdStr));
+            updateFnBadgeOnCanvas(parseInt(nodeIdStr));
         }
 
         // Validate
@@ -497,6 +537,7 @@ export async function moveToGroupFromPortal(portalNodeId) {
             idsToRemove.push(idStr);
         }
         for (const idStr of idsToRemove) {
+            if (state.nodesData[idStr] && state.nodesData[idStr].isPortal) _removePortalLines(parseInt(idStr));
             state.editor.removeNodeId('node-' + idStr);
             delete state.nodesData[idStr];
         }
@@ -546,11 +587,15 @@ export async function deleteGroupFromPortal(portalNodeId) {
 
     if (!confirm('Delete group "' + groupLabel + '"? All nodes in this group will be removed from the project.')) return;
 
+    snapshotState();
+
     // Remove the portal node from canvas
+    _removePortalLines(portalNodeId);
     state.editor.removeNodeId('node-' + portalNodeId);
     delete state.nodesData[portalNodeId];
     delete state.portalNodeIds[groupId];
     delete state.collapsedGroupsData[groupId];
+    _closeEditorsFor(portalNodeId);
 
     // Update manifest
     if (state.groupsManifest && state.groupsManifest.groups) {
@@ -559,6 +604,8 @@ export async function deleteGroupFromPortal(portalNodeId) {
 
     // Redraw remaining portal output lines (they may have connected to this group)
     _refreshPortalOutputs();
+    validateDeadEnds();
+    validateOrphans();
 
     showToast('Group deleted: ' + groupLabel);
 }
@@ -615,15 +662,9 @@ export function collapseGroup(groupId) {
     // Cache collapsed data
     state.collapsedGroupsData[groupId] = nodeData;
 
-    // Preserve cross-group choices that target this group's slugs while its
-    // nodes are removed (nodeRemoved normally strips them). The slug set is
-    // cleared once the portal stub is in place.
-    for (const nid of nodes) {
-        const slug = state.nodesData[nid]?.slug;
-        if (slug) state.collapsingSlugs.add(slug);
-    }
-
-    // Remove nodes from canvas
+    // Remove nodes from canvas. Programmatic removal is silent, so cross-group
+    // choices/markdown that target this group's slugs are preserved and keep
+    // rendering as portal lines.
     for (const nid of nodes) {
         const slug = state.nodesData[nid]?.slug;
         state.editor.removeNodeId('node-' + nid);
@@ -638,8 +679,6 @@ export function collapseGroup(groupId) {
     const label = (state.groupsManifest?.groups?.find(g => g.id === groupId)?.label) || groupId;
     createPortalNode({ id: groupId, label, node_count: nodeData.length, slug_ids: nodeData.map(n => ({slug_id: n.id, connections: (n.choices || []).map(c => c.targetSlug).filter(Boolean)})) }, centerX, centerY);
 
-    state.collapsingSlugs.clear();
-
     // Redraw all portal output lines: the new portal's inbound/outbound lines
     // plus any other portals that connect to this group.
     _refreshPortalOutputs();
@@ -650,18 +689,20 @@ export function collapseGroup(groupId) {
     if (state.selectedNodeId !== null && state.nodesData[state.selectedNodeId] === undefined) {
         closePassageEditor();
     }
+    validateDeadEnds();
+    validateOrphans();
 }
 
 export function _setupNodeCollapseButton(nodeId) {
     const nodeEl = document.getElementById('node-' + nodeId);
     if (!nodeEl) return;
 
-    const data = state.nodesData[nodeId];
-    if (!data || data.isPortal || !data.group || data.group === 'side_panel') return;
-
     // Remove existing collapse button if any (idempotent)
     const existing = nodeEl.querySelector('.node-collapse-btn');
     if (existing) existing.remove();
+
+    const data = state.nodesData[nodeId];
+    if (!data || data.isPortal || !data.group || data.group === 'side_panel') return;
 
     const btn = document.createElement('button');
     btn.className = 'node-collapse-btn';
@@ -675,12 +716,24 @@ export function _setupNodeCollapseButton(nodeId) {
     });
 }
 
+// Port rows on a portal: one per slug up to MAX_PORTAL_ROWS, plus one shared
+// "+N more" bucket row when the group is larger.
+function _portalPortCount(slugCount) {
+    if (slugCount > MAX_PORTAL_ROWS) return MAX_PORTAL_ROWS + 1;
+    return Math.max(1, slugCount);
+}
+
+// Port index (0-based) used for slug number `i` on a portal with `total` slugs.
+export function _portalPortIndex(i, total) {
+    return total > MAX_PORTAL_ROWS ? Math.min(i, MAX_PORTAL_ROWS) : i;
+}
+
 export function createPortalNode(group, posX, posY) {
     try {
         const label = group.label || group.id;
         const count = group.node_count || 0;
         const slugIds = group.slug_ids || [];
-        const ioCount = Math.max(1, slugIds.length);
+        const ioCount = _portalPortCount(slugIds.length);
         const nodeId = state.editor.addNode(
             'portal_node',
             ioCount,
@@ -730,39 +783,64 @@ export function createPortalNode(group, posX, posY) {
 export function _labelPortalIO(nodeId, slugIds) {
     const nodeEl = document.getElementById('node-' + nodeId);
     if (!nodeEl) return;
-    for (let i = 0; i < slugIds.length; i++) {
-        const slug = slugIds[i].slug_id;
+    const data = state.nodesData[nodeId];
+    if (!data) return;
+
+    const visibleSlugs = slugIds.slice(0, MAX_PORTAL_ROWS);
+
+    for (let i = 0; i < visibleSlugs.length; i++) {
+        const slug = visibleSlugs[i].slug_id;
         const inputEl = nodeEl.querySelector('.input_' + (i + 1));
         if (inputEl) { inputEl.title = slug; inputEl.dataset.slug = slug; }
         const outputEl = nodeEl.querySelector('.output_' + (i + 1));
         if (outputEl) { outputEl.title = slug; outputEl.dataset.slug = slug; }
     }
+    if (slugIds.length > MAX_PORTAL_ROWS) {
+        const hiddenTitle = (slugIds.length - MAX_PORTAL_ROWS) + ' more passages (load the group to edit)';
+        const bucketIn = nodeEl.querySelector('.input_' + (MAX_PORTAL_ROWS + 1));
+        const bucketOut = nodeEl.querySelector('.output_' + (MAX_PORTAL_ROWS + 1));
+        if (bucketIn) bucketIn.title = hiddenTitle;
+        if (bucketOut) bucketOut.title = hiddenTitle;
+    }
 
-    // Rewrite content node with slug labels aligned to I/O rows
-    const data = state.nodesData[nodeId];
-    if (!data) return;
+    const contentEl = nodeEl.querySelector('.drawflow_content_node');
+    if (!contentEl) return;
+
+    if (slugIds.length === 0) {
+        nodeEl.style.alignItems = 'center';
+        contentEl.style.height = 'auto';
+        contentEl.textContent = (data.portalGroupLabel || data.title || 'Group') + ' (0 nodes)';
+        return;
+    }
 
     // Override flex centering so content aligns with I/O circles at top
     nodeEl.style.alignItems = 'flex-start';
 
-    const contentEl = nodeEl.querySelector('.drawflow_content_node');
-    if (!contentEl) return;
     // Match I/O circle layout: height:20px + border:2px*2 + margin-bottom:5px = 29px
     const rowHeight = 29;
     const offset = 2; // matches .input { top: 2px }
-    const totalHeight = (slugIds.length * rowHeight) + offset + 4;
+    const hasExtraRow = slugIds.length > MAX_PORTAL_ROWS;
+    const rowCount = visibleSlugs.length + (hasExtraRow ? 1 : 0);
+    const totalHeight = (rowCount * rowHeight) + offset + 4;
     contentEl.style.position = 'relative';
     contentEl.style.padding = '0';
     contentEl.style.margin = '0';
     contentEl.style.height = totalHeight + 'px';
     contentEl.style.overflow = 'visible';
     contentEl.innerHTML = '';
-    for (let i = 0; i < slugIds.length; i++) {
+    for (let i = 0; i < visibleSlugs.length; i++) {
         const slugEl = document.createElement('div');
         slugEl.className = 'p-row p-slug';
         slugEl.style.top = (offset + i * rowHeight) + 'px';
-        slugEl.textContent = slugIds[i].slug_id;
+        slugEl.textContent = visibleSlugs[i].slug_id;
         contentEl.appendChild(slugEl);
+    }
+    if (hasExtraRow) {
+        const moreEl = document.createElement('div');
+        moreEl.className = 'p-row p-slug';
+        moreEl.style.top = (offset + visibleSlugs.length * rowHeight) + 'px';
+        moreEl.textContent = `... +${slugIds.length - MAX_PORTAL_ROWS} more (Load Group to view)`;
+        contentEl.appendChild(moreEl);
     }
 }
 
@@ -783,77 +861,74 @@ export function _renderPortalOutputs(portalNodeId) {
     const portalEl = document.getElementById('node-' + portalNodeId);
     if (!portalEl) return;
 
+    const engineNodes = state.editor.drawflow.drawflow['Home'].data;
     const ownSlugs = new Set(slugIds.map(s => (typeof s === 'string' ? s : s.slug_id)));
+    // Lines are de-duplicated per port row: slugs past MAX_PORTAL_ROWS share
+    // the bucket row, so several of them may resolve to the same line.
+    const drawn = new Set();
 
     for (let i = 0; i < slugIds.length; i++) {
         const entry = slugIds[i];
         const slug = typeof entry === 'string' ? entry : entry.slug_id;
         const connections = typeof entry === 'string' ? [] : (entry.connections || []);
-        const outputEl = portalEl.querySelector('.output_' + (i + 1));
-        if (!outputEl) continue;
+        const port = _portalPortIndex(i, slugIds.length) + 1;
+        const inClass = 'input_' + port;
+        const outClass = 'output_' + port;
 
         // Inbound: loaded nodes that have a choice targeting this slug.
-        // Drawn directed: from the loaded node's output_1 to the portal's
-        // input circle for this slug row.
-        const portalInputEl = portalEl.querySelector('.input_' + (i + 1));
-        const seenSources = new Set();
+        // Drawn directed: from the loaded node's output_1 to this slug's row.
         for (const [nidStr, nd] of Object.entries(state.nodesData)) {
             if (nd.isPortal) continue;
-            // Only consider nodes that are on the canvas
-            if (!state.editor.drawflow.drawflow['Home'].data[parseInt(nidStr)]) continue;
-            const choices = nd.choices || [];
-            if (!choices.some(c => c.targetSlug === slug)) continue;
-
             const sourceNid = parseInt(nidStr);
-            if (seenSources.has(sourceNid)) continue;
-            seenSources.add(sourceNid);
-            const sourceEl = document.getElementById('node-' + sourceNid);
-            if (!sourceEl || !portalInputEl) continue;
-            const sourceOutputEl = sourceEl.querySelector('.output_1');
-            if (!sourceOutputEl) continue;
-            _drawPortalOutputLine(portalNodeId, sourceOutputEl, portalInputEl);
+            if (!engineNodes[sourceNid]) continue;
+            if (!(nd.choices || []).some(c => c.targetSlug === slug)) continue;
+            // A user-drawn engine edge already shows this link.
+            if (state.editor.hasConnection(sourceNid, portalNodeId, 'output_1', inClass)) continue;
+            const key = 'in:' + sourceNid + ':' + port;
+            if (drawn.has(key)) continue;
+            drawn.add(key);
+            _drawPortalOutputLine(portalNodeId,
+                { nodeId: sourceNid, port: 'output_1', isOutput: true },
+                { nodeId: portalNodeId, port: inClass, isOutput: false });
         }
 
         // Outbound: connections from this slug to other slugs (from the manifest)
-        const seenTargets = new Set();
         for (const targetSlug of connections) {
             if (!targetSlug || ownSlugs.has(targetSlug)) continue; // intra-group → internal
-            if (seenTargets.has(targetSlug)) continue;
-            seenTargets.add(targetSlug);
-            const targetEl = _resolvePortalTargetEl(targetSlug, portalNodeId);
-            if (!targetEl) continue;
-            _drawPortalOutputLine(portalNodeId, outputEl, targetEl);
+            const target = _resolvePortalTarget(targetSlug, portalNodeId);
+            if (!target) continue;
+            const key = 'out:' + port + ':' + target.nodeId + ':' + target.port;
+            if (drawn.has(key)) continue;
+            drawn.add(key);
+            _drawPortalOutputLine(portalNodeId,
+                { nodeId: portalNodeId, port: outClass, isOutput: true },
+                target);
         }
     }
 }
 
-function _resolvePortalTargetEl(targetSlug, currentPortalId) {
-    // Priority 1: loaded passage node on the canvas → its input circle
+// Where a cross-group link to `targetSlug` should end: a loaded node's input,
+// or the matching slug row (or bucket row) on another portal.
+function _resolvePortalTarget(targetSlug, currentPortalId) {
+    const engineNodes = state.editor.drawflow.drawflow['Home'].data;
+    // Priority 1: loaded passage node on the canvas
     const loadedId = state.slugToNodeId[targetSlug];
-    if (loadedId !== undefined) {
-        const el = document.getElementById('node-' + loadedId);
-        if (el && state.editor.drawflow.drawflow['Home'].data[loadedId]) {
-            const inputEl = el.querySelector('.input_1');
-            if (inputEl) return inputEl;
-            return el;
-        }
+    if (loadedId !== undefined && engineNodes[loadedId] && !(state.nodesData[loadedId] || {}).isPortal) {
+        return { nodeId: loadedId, port: 'input_1', isOutput: false };
     }
-    // Priority 2: another collapsed portal that contains this slug → its input circle
-    for (const [gid, pid] of Object.entries(state.portalNodeIds)) {
+    // Priority 2: another collapsed portal that contains this slug
+    for (const pid of Object.values(state.portalNodeIds)) {
         if (parseInt(pid) === currentPortalId) continue;
         const pData = state.nodesData[pid];
-        if (!pData || !pData.portalSlugIds) continue;
+        if (!pData || !pData.portalSlugIds || !engineNodes[pid]) continue;
         const idx = pData.portalSlugIds.findIndex(s => (typeof s === 'string' ? s : s.slug_id) === targetSlug);
         if (idx === -1) continue;
-        const portalEl = document.getElementById('node-' + pid);
-        if (!portalEl) continue;
-        const inputEl = portalEl.querySelector('.input_' + (idx + 1));
-        if (inputEl) return inputEl;
+        return { nodeId: parseInt(pid), port: 'input_' + (_portalPortIndex(idx, pData.portalSlugIds.length) + 1), isOutput: false };
     }
     return null;
 }
 
-function _drawPortalOutputLine(portalNodeId, outputEl, targetEl) {
+function _drawPortalOutputLine(portalNodeId, from, to) {
     const precanvas = state.editor.precanvas;
     if (!precanvas) return;
 
@@ -870,8 +945,8 @@ function _drawPortalOutputLine(portalNodeId, outputEl, targetEl) {
 
     precanvas.appendChild(svg);
     state.portalOutputSvg[portalNodeId].push(svg);
-    svg._portalRefs = { outputEl, targetEl };
-    _positionPortalOutputLine(svg, outputEl, targetEl);
+    svg._portalRefs = { from, to };
+    _positionPortalOutputLine(svg, from, to);
 }
 
 export function _refreshPortalOutputs() {
@@ -880,53 +955,19 @@ export function _refreshPortalOutputs() {
     }
 }
 
-function _positionPortalOutputLineSync(svg, outputEl, targetEl) {
-    const precanvas = state.editor.precanvas;
-    if (!precanvas) return;
-    // Mirror Drawflow's updateConnectionNodes math: convert screen-space
-    // offsets back into the precanvas's untransformed coordinate space.
-    const zoom = state.editor.zoom || 1;
-    const scaleX = (precanvas.clientWidth / (precanvas.clientWidth * zoom)) || 0;
-    const scaleY = (precanvas.clientHeight / (precanvas.clientHeight * zoom)) || 0;
-    const precanvasRect = precanvas.getBoundingClientRect();
-    const outRect = outputEl.getBoundingClientRect();
-    const tgtRect = targetEl.getBoundingClientRect();
-
-    const x1 = (outRect.left - precanvasRect.left + outRect.width / 2) * scaleX;
-    const y1 = (outRect.top - precanvasRect.top + outRect.height / 2) * scaleY;
-    const x2 = (tgtRect.left - precanvasRect.left + tgtRect.width / 2) * scaleX;
-    const y2 = (tgtRect.top - precanvasRect.top + tgtRect.height / 2) * scaleY;
-
-    const minX = Math.min(x1, x2);
-    const minY = Math.min(y1, y2);
-    const w = Math.max(Math.abs(x2 - x1), 1);
-    const h = Math.max(Math.abs(y2 - y1), 1);
-
-    svg.style.left = minX + 'px';
-    svg.style.top = minY + 'px';
-    svg.style.width = w + 'px';
-    svg.style.height = h + 'px';
-
-    const path = svg.querySelector('.main-path');
-    if (!path) return;
-    const relX1 = x1 - minX;
-    const relY1 = y1 - minY;
-    const relX2 = x2 - minX;
-    const relY2 = y2 - minY;
-    const cx = relX1 + (relX2 - relX1) * 0.5;
-    path.setAttribute('d', `M${relX1},${relY1} C${cx},${relY1} ${cx},${relY2} ${relX2},${relY2}`);
-}
-
-export function _positionPortalOutputLine(svg, outputEl, targetEl) {
-    requestAnimationFrame(() => _positionPortalOutputLineSync(svg, outputEl, targetEl));
+// Pure coordinate math via the engine (no layout reads per frame).
+export function _positionPortalOutputLine(svg, from, to) {
+    const p1 = state.editor.getPortCoords(from.nodeId, from.port, from.isOutput);
+    const p2 = state.editor.getPortCoords(to.nodeId, to.port, to.isOutput);
+    state.editor.positionConnectionSvg(svg, p1, p2);
 }
 
 export function _repositionPortalOutputs() {
-    for (const [pidStr, lines] of Object.entries(state.portalOutputSvg)) {
+    for (const lines of Object.values(state.portalOutputSvg)) {
         if (!Array.isArray(lines)) continue;
         for (const svg of lines) {
             if (!svg || !svg._portalRefs) continue;
-            _positionPortalOutputLineSync(svg, svg._portalRefs.outputEl, svg._portalRefs.targetEl);
+            _positionPortalOutputLine(svg, svg._portalRefs.from, svg._portalRefs.to);
         }
     }
 }

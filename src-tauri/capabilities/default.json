@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main editor window. NodeFable's own commands (save/load/assets/preview/export) are app commands and need no plugin permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

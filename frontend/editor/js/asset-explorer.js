@@ -5,6 +5,11 @@ import { insertAtCursor } from './codemirror-setup.js';
 import { SVG_CLOSE } from './constants.js';
 import api, { cleanAssetRelPath, resolveEditorAssetUrl } from './api.js';
 
+// Thumbnails use crossorigin="anonymous": in the app they come from the
+// nfasset:// scheme, which WebKit only displays on an http:// page (the
+// `cargo tauri dev` server) when requested in CORS mode. The scheme sends
+// Access-Control-Allow-Origin: *; in legacy HTTP mode they are same-origin.
+
 const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov'];
 const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'];
 
@@ -66,7 +71,7 @@ export function renderAssetTree(nodes, container, parentPath) {
             const alt = node.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
             const syntax = assetSyntax(path, node.name);
             html += '<div class="asset-tree-file-row" title="Click to copy: ' + escapeHtml(syntax) + '">';
-            html += '  <img class="asset-preview" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(alt) + '" loading="lazy">';
+            html += '  <img class="asset-preview" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(alt) + '" loading="lazy" crossorigin="anonymous">';
             html += '  <span class="asset-syntax">' + escapeHtml(syntax) + '</span>';
             html += '  <button class="asset-delete-btn" data-path="' + escapeHtml(path) + '" title="Delete asset">' + SVG_CLOSE + '</button>';
             html += '</div>';
@@ -99,7 +104,7 @@ export function renderAssetTreeChildren(nodes, parentPath) {
             const alt = node.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
             const syntax = assetSyntax(path, node.name);
             html += '<div class="asset-tree-file-row" title="Click to copy: ' + escapeHtml(syntax) + '">';
-            html += '  <img class="asset-preview" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(alt) + '" loading="lazy">';
+            html += '  <img class="asset-preview" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(alt) + '" loading="lazy" crossorigin="anonymous">';
             html += '  <span class="asset-syntax">' + escapeHtml(syntax) + '</span>';
             html += '  <button class="asset-delete-btn" data-path="' + escapeHtml(path) + '" title="Delete asset">' + SVG_CLOSE + '</button>';
             html += '</div>';
@@ -158,7 +163,7 @@ export function renderAEGrid(entries) {
             html += '<div class="ae-grid-item ae-file-item' + selClass + '" data-path="' + escapeHtml(path) + '" data-type="file">';
             if (isImage) {
                 const thumbUrl = resolveEditorAssetUrl(state.currentProjectName, path);
-                html += '  <img class="ae-thumb" src="' + escapeHtml(thumbUrl) + '" alt="' + escapeHtml(entry.name) + '" loading="lazy">';
+                html += '  <img class="ae-thumb" src="' + escapeHtml(thumbUrl) + '" alt="' + escapeHtml(entry.name) + '" loading="lazy" crossorigin="anonymous">';
             } else {
                 html += '  <div class="ae-thumb">&#128196;</div>';
             }

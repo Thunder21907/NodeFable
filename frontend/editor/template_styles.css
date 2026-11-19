@@ -1,6 +1,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
+:root { color-scheme: dark; } /* native controls, scrollbars, pickers render dark */
 html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
+    -webkit-tap-highlight-color: rgba(122, 184, 255, 0.18);
     font-family: 'Georgia', 'Times New Roman', serif;
     background: #0f0f0f;
     color: #d4d4d4;
@@ -10,10 +13,10 @@ body {
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #555; }
 #app {
     display: flex;
     height: 100vh;
+    height: 100dvh; /* mobile browsers: exclude the area behind the URL bar */
     overflow: hidden;
 }
 #side-panel {
@@ -22,6 +25,7 @@ body {
     border-right: 1px solid #222;
     padding: 28px 20px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -42,7 +46,6 @@ body {
     font-size: 1rem;
     font-family: inherit;
 }
-#nav-row button:hover:not(:disabled) { background: #444; }
 #nav-row button:disabled { opacity: 0.3; cursor: not-allowed; }
 #nav-row button svg { vertical-align: middle; pointer-events: none; }
 #side-panel-content {
@@ -54,7 +57,6 @@ body {
 #side-panel-content p { margin-bottom: 10px; }
 #side-panel-content a { color: #7ab8ff; text-decoration: underline; cursor: pointer; }
 #side-panel-content a:visited { color: #7ab8ff; }
-#side-panel-content a:hover { color: #a8d0ff; }
 #save-load-btn {
     margin-top: 6px;
     background: #333;
@@ -67,7 +69,8 @@ body {
     font-family: inherit;
     width: 100%;
 }
-#save-load-btn:hover { background: #444; color: #fff; }
+#mobile-bar { display: none; }
+#side-panel-backdrop { display: none; }
 #save-load-overlay {
     position: fixed;
     inset: 0;
@@ -82,9 +85,11 @@ body {
     border: 1px solid #333;
     border-radius: 8px;
     padding: 24px;
-    width: 400px;
+    width: min(92vw, 400px);
     max-height: 80vh;
+    max-height: 85dvh;
     overflow-y: auto;
+    overscroll-behavior: contain;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 #save-load-modal h3 {
@@ -142,17 +147,14 @@ body {
     background: #27ae60;
     color: #fff;
 }
-.save-slot-save:hover { background: #2ecc71; }
 .save-slot-load {
     background: #3498db;
     color: #fff;
 }
-.save-slot-load:hover { background: #5dade2; }
 .save-slot-delete {
     background: #c0392b;
     color: #fff;
 }
-.save-slot-delete:hover { background: #e74c3c; }
 .save-slot-empty {
     color: #555;
     font-size: 0.85rem;
@@ -170,10 +172,11 @@ body {
     font-size: 0.8rem;
     font-family: inherit;
 }
-#save-load-close:hover { background: #444; color: #fff; }
 #main-panel {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
+    overscroll-behavior: contain; /* no pull-to-refresh / scroll chaining on Android */
     display: flex;
     flex-direction: column;
 }
@@ -182,13 +185,18 @@ body {
     width: 100%;
     margin: 0 auto;
     padding: 48px 40px 32px;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
     flex: 1;
 }
 #passage-content {
     font-size: 1.05rem;
     line-height: 1.8;
     min-height: 80px;
+    overflow-wrap: break-word; /* long words / URLs never widen the page */
 }
+#passage-content img,
+#side-panel-content img { max-width: 100%; height: auto; }
+.nf-video { display: block; max-width: 100%; }
 #passage-content p { margin-bottom: 14px; }
 #passage-content em { color: #b0b0b0; }
 #passage-content strong { color: #fff; }
@@ -198,13 +206,11 @@ body {
     cursor: pointer;
 }
 #passage-content a:visited { color: #7ab8ff; }
-#passage-content a:hover { color: #a8d0ff; }
 #passage-content a.disabled {
     color: #555;
     cursor: not-allowed;
     text-decoration: none;
 }
-#passage-content a.disabled:hover { color: #555; }
 #game-toast {
     position: fixed;
     bottom: 30px;
@@ -220,7 +226,9 @@ body {
     transition: opacity 0.3s ease;
     border: 1px solid #333;
     pointer-events: none;
-    white-space: nowrap;
+    max-width: calc(100vw - 32px);
+    white-space: normal;
+    text-align: center;
 }
 #new-game-btn {
     margin-top: 24px;
@@ -233,11 +241,6 @@ body {
     font-size: 0.8rem;
     font-family: inherit;
     width: 100%;
-}
-#new-game-btn:hover { background: #c0392b; color: #fff; }
-@media (max-width: 640px) {
-    #side-panel { display: none; }
-    #main-scroll { padding: 28px 20px 24px; }
 }
 .wait-container {
     position: relative;
@@ -274,16 +277,24 @@ body {
     font-size: 0.78rem;
     color: #999;
     margin-top: 4px;
-    white-space: nowrap;
+    max-width: 88px;
+    text-align: center;
+    overflow-wrap: anywhere;
 }
 .dialogue-text {
     flex: 1;
+    min-width: 0;
+    overflow-wrap: break-word;
     color: #ddd;
     line-height: 1.7;
 }
 
 /* Tables & Stat Bars */
 .nf-table {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
     border-collapse: collapse;
     margin: 14px 0;
     font-size: 0.95rem;
@@ -315,7 +326,10 @@ body {
 }
 
 /* Form Elements */
-.nf-textfield {
+.nf-textfield,
+.nf-textarea,
+.nf-number,
+.nf-dropdown {
     display: block;
     width: 100%;
     max-width: 400px;
@@ -330,10 +344,17 @@ body {
     outline: none;
     transition: border-color 0.2s;
 }
-.nf-textfield:focus {
+.nf-textfield:focus,
+.nf-textarea:focus,
+.nf-number:focus,
+.nf-dropdown:focus {
     border-color: #7ab8ff;
 }
-.nf-textfield::placeholder {
+.nf-textarea { resize: vertical; min-height: 4.5em; line-height: 1.5; }
+.nf-number { max-width: 12em; }
+.nf-dropdown { max-width: min(400px, 100%); cursor: pointer; }
+.nf-textfield::placeholder,
+.nf-textarea::placeholder {
     color: #555;
     font-style: italic;
 }
@@ -379,7 +400,9 @@ body {
 }
 #game-toast-container {
     position: fixed;
-    bottom: 2em;
+    bottom: calc(2em + env(safe-area-inset-bottom, 0px));
+    width: max-content;
+    max-width: calc(100vw - 32px);
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -400,3 +423,110 @@ body {
 .nf-toast-success { background: #4CAF50; border: 2px solid #4CAF50; }
 .nf-toast-warn { background: #FFC107; color: #333; border: 2px solid #FFC107; }
 .nf-toast-error { background: #F44336; border: 2px solid #F44336; }
+
+@media (max-width: 640px) {
+    #mobile-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 16px;
+        padding-top: calc(10px + env(safe-area-inset-top, 0px));
+        background: #141414;
+        border-bottom: 1px solid #222;
+        flex-shrink: 0;
+        /* #main-panel is the scroll container; keep the bar pinned on top. */
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    #mobile-bar button {
+        padding: 6px 12px;
+        background: #333;
+        color: #ccc;
+        border: 1px solid #555;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-family: inherit;
+    }
+    #mobile-bar button:disabled { opacity: 0.3; cursor: not-allowed; }
+    #mobile-bar button svg { vertical-align: middle; pointer-events: none; }
+    #mobile-nav-row { display: flex; gap: 6px; }
+    #side-panel {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(82vw, 260px);
+        padding-top: calc(20px + env(safe-area-inset-top, 0px));
+        padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+        z-index: 1500;
+        transform: translateX(-105%);
+        transition: transform 0.22s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+    }
+    #side-panel.mobile-open {
+        transform: translateX(0);
+    }
+    #side-panel-backdrop.mobile-open {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.55);
+        z-index: 1400;
+    }
+    #main-scroll { padding: 24px 16px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+    #save-load-modal { padding: 18px 16px; }
+    /* Slot title gets the full row; actions wrap underneath. */
+    .save-slot { flex-wrap: wrap; gap: 8px; }
+    .save-slot-info { flex-basis: 100%; }
+    .save-slot-actions { margin-left: 0; width: 100%; }
+    .save-slot-actions button { flex: 1; }
+    .dialogue-block { padding: 12px; gap: 12px; flex-wrap: wrap; }
+    .dialogue-text { min-width: min(100%, 180px); }
+}
+
+/* Hover effects only where a real hover exists (a tap must not leave
+   buttons stuck in their hover colour, e.g. "New Game" turning red). */
+@media (hover: hover) {
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
+    #nav-row button:hover:not(:disabled) { background: #444; }
+    #side-panel-content a:hover { color: #a8d0ff; }
+    #save-load-btn:hover { background: #444; color: #fff; }
+    .save-slot-save:hover { background: #2ecc71; }
+    .save-slot-load:hover { background: #5dade2; }
+    .save-slot-delete:hover { background: #e74c3c; }
+    #save-load-close:hover { background: #444; color: #fff; }
+    #passage-content a:hover { color: #a8d0ff; }
+    #passage-content a.disabled:hover { color: #555; }
+    #new-game-btn:hover { background: #c0392b; color: #fff; }
+}
+
+/* Touch screens: 44px+ targets (Android guideline is 48dp). */
+@media (pointer: coarse) {
+    #nav-row button,
+    #mobile-bar button,
+    #save-load-btn,
+    #new-game-btn,
+    #save-load-close { min-height: 44px; }
+    #mobile-nav-row button { min-width: 48px; }
+    .save-slot-actions button { min-height: 40px; min-width: 52px; padding: 6px 12px; font-size: 0.85rem; }
+    .nf-textfield, .nf-textarea, .nf-number, .nf-dropdown { min-height: 44px; font-size: 1rem; }
+    .nf-checkbox, .nf-radio { width: 22px; height: 22px; }
+    .nf-radio-option { min-height: 40px; }
+    #passage-content a, #side-panel-content a { padding: 0.15em 0; }
+}
+
+/* Phones in landscape: little height, so trim vertical padding. */
+@media (max-height: 500px) and (orientation: landscape) {
+    #main-scroll { padding-top: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+    #side-panel { padding-top: 16px; padding-bottom: 16px; }
+    #new-game-btn { margin-top: 12px; }
+}
+
+/* Notch / cut-out: keep content out of the side insets in landscape. */
+#app {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+}

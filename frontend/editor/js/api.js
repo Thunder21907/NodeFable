@@ -13,8 +13,16 @@ export function isTauri() {
     );
 }
 
-export function invokeTauri(cmd, args = {}) {
-    return window.__TAURI_INTERNALS__.invoke(cmd, args);
+// Tauri rejects with the command's error value (a plain string such as
+// "Project 'x' not found"); wrap it so callers can rely on `err.message`.
+export async function invokeTauri(cmd, args = {}, options) {
+    try {
+        return await window.__TAURI_INTERNALS__.invoke(cmd, args, options);
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        const msg = typeof e === 'string' ? e : (e && (e.detail || e.message)) || String(e);
+        throw new Error(msg);
+    }
 }
 
 export function cleanAssetRelPath(relPath) {
@@ -32,7 +40,16 @@ export function resolveEditorAssetUrl(projectName, relPath) {
     const clean = cleanAssetRelPath(relPath);
     if (!projectName || !clean) return '';
     if (isTauri()) {
-        return 'nfasset://localhost/' + encodeURIComponent(projectName) + '/assets/' + clean;
+        const path = projectName + '/assets/' + clean;
+        // Tauri serves custom schemes as nfasset://localhost/… (Linux/macOS)
+        // or http://nfasset.localhost/… (Windows/Android); convertFileSrc
+        // picks the right form. The Rust handler decodes either.
+        const internals = window.__TAURI_INTERNALS__;
+        if (typeof internals.convertFileSrc === 'function') {
+            return internals.convertFileSrc(path, 'nfasset');
+        }
+        return 'nfasset://localhost/' + encodeURIComponent(projectName) + '/assets/'
+            + clean.split('/').map(encodeURIComponent).join('/');
     }
     return '/api/assets/' + encodeURIComponent(projectName) + '/' + clean;
 }
@@ -140,12 +157,15 @@ export async function uploadAsset(name, file, folder = '') {
     const cleanFolder = (folder || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
     const relPath = cleanFolder ? cleanFolder + '/' + file.name : file.name;
     if (isTauri()) {
+        // Raw binary IPC body (no JSON number array); metadata travels in
+        // percent-encoded headers.
         const buf = await file.arrayBuffer();
-        const res = await invokeTauri('upload_asset', {
-            name,
-            filename: file.name,
-            folder: cleanFolder,
-            bytes: Array.from(new Uint8Array(buf)),
+        const res = await invokeTauri('upload_asset', new Uint8Array(buf), {
+            headers: {
+                'x-nf-name': encodeURIComponent(name),
+                'x-nf-filename': encodeURIComponent(file.name),
+                'x-nf-folder': encodeURIComponent(cleanFolder),
+            },
         });
         const finalRelPath = (res && res.rel_path) || relPath;
         return {

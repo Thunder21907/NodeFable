@@ -1,12 +1,44 @@
 // frontend/editor/js/graph-engine.js
-// Drawflow graph engine event handlers, node overlay injection, side panel.
+// CanvasEngine event handlers, node overlay injection, side panel.
+//
+// The engine only dispatches connectionCreated / connectionRemoved / nodeRemoved
+// for user intents (see canvas-engine.js), so these handlers never run during
+// project loads, group collapse/expand or undo/redo.
 import { state, getNodeSlug, ensureNodeData } from './state.js';
-import { SVG_LINK, SVG_EDIT, SVG_CLOSE } from './constants.js';
+import { SVG_LINK, SVG_EDIT, SVG_CLOSE, MAX_PORTAL_ROWS } from './constants.js';
 import { snapshotState } from './history.js';
 import { validateDeadEnds, validateOrphans } from './validation.js';
 import { setEditorValue, insertAtCursor, getEditorValue } from './codemirror-setup.js';
-import { openPassageEditor, closePassageEditor, renderChoices, handleLinkTargetClick, cancelLinking, getNodeTitle } from './node-editor.js';
+import { openPassageEditor, closePassageEditor, renderChoices, handleLinkTargetClick, cancelLinking, getNodeTitle, stripChoiceAndLink } from './node-editor.js';
 import { _refreshPortalOutputs, _repositionPortalOutputs, _setupNodeCollapseButton } from './group-manager.js';
+import { showToast, escapeRegex, isDrawerLayout, openDrawer } from './ui-utils.js';
+
+// Toggle-off for a link that already existed as a choice (e.g. a cross-group
+// link drawn as a portal line): drop the edge that was just created, then the
+// choice and its markdown link. The undo snapshot was taken by the caller.
+function _unlinkExisting(sourceId, targetId, data, targetSlug) {
+    state.editor.removeSingleConnection(sourceId, targetId, data.output_class || 'output_1', data.input_class || 'input_1');
+    stripChoiceAndLink(sourceId, targetSlug);
+    validateDeadEnds();
+    validateOrphans();
+    _refreshPortalOutputs();
+    showToast('Link removed');
+}
+
+// Slug a node input port stands for: a portal slug row, or the node's slug.
+// Returns null for the portal "+N more" bucket row (not a single slug).
+function _slugForInputPort(nodeId, inputClass) {
+    const data = state.nodesData[nodeId];
+    if (!data) return null;
+    if (!data.isPortal) return getNodeSlug(nodeId);
+    const m = String(inputClass || 'input_1').match(/input_(\d+)/);
+    const idx = m ? parseInt(m[1]) - 1 : -1;
+    const slugs = data.portalSlugIds || [];
+    if (idx < 0 || idx >= slugs.length) return null;
+    if (slugs.length > MAX_PORTAL_ROWS && idx >= MAX_PORTAL_ROWS) return null;
+    const entry = slugs[idx];
+    return typeof entry === 'string' ? entry : entry.slug_id;
+}
 
 export function setupEditorEvents() {
     const canvasElement = document.querySelector('.drawflow');
@@ -15,25 +47,49 @@ export function setupEditorEvents() {
         return;
     }
 
-    // Exit pan mode when clicking on a node (capture phase fires before Drawflow's handler)
-    canvasElement.addEventListener('mousedown', (e) => {
-        if (e.target.closest('.drawflow-node')) {
-            state.editor.editor_selected = false;
-        }
-    }, true);
+    // User-intent mutations performed by the engine itself (drag-to-link,
+    // Delete on a selected edge) announce themselves first so undo can
+    // capture the pre-change state.
+    state.editor.on('beforeUserEdit', () => snapshotState());
 
-    // Listen for Drawflow's native node selection event (fires on mousedown)
+    // Listen for node selection event (fires on mousedown/touchstart)
     state.editor.on('nodeSelected', (nodeId) => {
         if (state.linkingFromId !== null) return;
+        injectOverlayToNode(nodeId, false);
         openPassageEditor(nodeId);
+    });
+
+    // On drawer layouts (≤1024px) a tap on a node opens the Inspector drawer.
+    // `nodeTapped` only fires for a press + release without movement, so
+    // dragging a node never covers the canvas. Linking-mode taps are targets.
+    state.editor.on('nodeTapped', () => {
+        if (state.linkingFromId !== null || !isDrawerLayout()) return;
+        openDrawer('sidebar');
     });
 
     state.editor.on('nodeUnselected', () => {
         closePassageEditor();
     });
 
-    // Also listen for clicks on the canvas for linking mode
+    // Also listen for clicks on the canvas for overlay menu/edit and linking mode
     canvasElement.addEventListener('click', (e) => {
+        const overlayBtn = e.target.closest('[data-overlay-action]');
+        if (overlayBtn) {
+            const action = overlayBtn.dataset.overlayAction;
+            const nodeEl = overlayBtn.closest('[data-id]');
+            if (action === 'menu' && nodeEl) {
+                e.stopPropagation();
+                nodeEl.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: e.clientX,
+                    clientY: e.clientY
+                }));
+                return;
+            }
+            if (action === 'edit' && isDrawerLayout()) openDrawer('sidebar');
+            return;
+        }
         if (e.target.closest('.node-overlay')) return;
 
         const nodeElement = e.target.closest('.drawflow-node');
@@ -66,10 +122,7 @@ export function setupEditorEvents() {
         injectOverlayToNode(nodeId, true);
     });
 
-    // Live-reposition portal lines while nodes/portals are dragged.
-    // Drawflow only dispatches `nodeMoved` on drag end, so hook the container's
-    // mousemove (registered after Drawflow's own handler, so the node position
-    // is already updated) and gate on Drawflow's internal `drag` flag.
+    // Live-reposition portal lines while nodes/portals are dragged or resized.
     let portalReposPending = null;
     const schedulePortalRepos = () => {
         if (portalReposPending) return;
@@ -78,31 +131,18 @@ export function setupEditorEvents() {
             _repositionPortalOutputs();
         });
     };
-    state.editor.container.addEventListener('mousemove', () => {
-        if (state.editor.drag) schedulePortalRepos();
-    });
+    state.editor.on('mouseMove', schedulePortalRepos);
     state.editor.on('nodeMoved', schedulePortalRepos);
+    state.editor.on('nodeResized', schedulePortalRepos);
 
     state.editor.on('nodeRemoved', (nodeId) => {
+        // User deleted a node: drop every choice/link that pointed at it.
         const slug = getNodeSlug(nodeId);
-        // During a group collapse the group's nodes are removed to be replaced
-        // by a portal stub. Cross-group choices that target those slugs must be
-        // preserved so they still render on the portal and survive save/expand.
-        const preserve = slug && state.collapsingSlugs && state.collapsingSlugs.has(slug);
-        if (!preserve) {
+        if (slug) {
             for (const [srcIdStr, srcData] of Object.entries(state.nodesData)) {
-                if (!srcData.choices) continue;
-                srcData.choices = srcData.choices.filter(c => {
-                    if (c.targetSlug === slug) {
-                        const linkRegex = new RegExp(`\\[[^\\]]*\\]\\(node:${slug}\\)`, 'g');
-                        srcData.text = (srcData.text || '').replace(linkRegex, '').replace(/\n{3,}/g, '\n\n').trim();
-                        return false;
-                    }
-                    return true;
-                });
-                if (parseInt(srcIdStr) === state.selectedNodeId) {
-                    setEditorValue(srcData.text);
-                    renderChoices(state.selectedNodeId);
+                if (parseInt(srcIdStr) === nodeId) continue;
+                if (srcData.choices && srcData.choices.some(c => c.targetSlug === slug)) {
+                    stripChoiceAndLink(parseInt(srcIdStr), slug);
                 }
             }
         }
@@ -115,7 +155,6 @@ export function setupEditorEvents() {
     });
 
     state.editor.on('connectionCreated', (data) => {
-        if (state.isLoading) return;
         const sourceId = data.output_id;
         const targetId = data.input_id;
         const sourceData = state.nodesData[sourceId];
@@ -125,12 +164,25 @@ export function setupEditorEvents() {
         if (targetData && targetData.isPortal) {
             const inputClass = data.input_class || 'input_1';
             const match = inputClass.match(/input_(\d+)/);
-            if (!match) { state.editor.removeSingleConnection(sourceId, targetId, 'output_1', inputClass); return; }
+            if (!match) { state.editor.removeSingleConnection(sourceId, targetId, data.output_class || 'output_1', inputClass); return; }
             const idx = parseInt(match[1]) - 1;
             const portalSlugIds = targetData.portalSlugIds || [];
-            if (idx >= portalSlugIds.length) { state.editor.removeSingleConnection(sourceId, targetId, 'output_1', inputClass); return; }
-            const targetSlug = portalSlugIds[idx].slug_id;
+            // Rows past MAX_PORTAL_ROWS are folded into one "+N more" bucket row,
+            // which does not identify a single slug.
+            const isBucket = portalSlugIds.length > MAX_PORTAL_ROWS && idx >= MAX_PORTAL_ROWS;
+            if (idx >= portalSlugIds.length || isBucket) {
+                state.editor.removeSingleConnection(sourceId, targetId, data.output_class || 'output_1', inputClass);
+                if (isBucket) showToast('Load the group to link to one of its hidden passages');
+                return;
+            }
+            const entry = portalSlugIds[idx];
+            const targetSlug = typeof entry === 'string' ? entry : entry.slug_id;
             ensureNodeData(sourceId);
+            if (state.nodesData[sourceId].choices.some(c => c.targetSlug === targetSlug)) {
+                // Re-linking an existing link toggles it off.
+                _unlinkExisting(sourceId, targetId, data, targetSlug);
+                return;
+            }
             state.nodesData[sourceId].choices.push({
                 targetSlug: targetSlug,
                 text: '',
@@ -156,13 +208,18 @@ export function setupEditorEvents() {
         // Handle portal as source (outbound — blocked, read-only)
         if (sourceData && sourceData.isPortal) {
             alert('Outbound connections from a portal are read-only. Load the group to edit connections.');
-            state.editor.removeSingleConnection(sourceId, targetId, 'output_1', data.input_class || 'input_1');
+            state.editor.removeSingleConnection(sourceId, targetId, data.output_class || 'output_1', data.input_class || 'input_1');
             return;
         }
 
         ensureNodeData(sourceId);
         ensureNodeData(targetId);
         const targetSlug = getNodeSlug(targetId);
+        if (state.nodesData[sourceId].choices.some(c => c.targetSlug === targetSlug)) {
+            // Re-linking an existing link toggles it off.
+            _unlinkExisting(sourceId, targetId, data, targetSlug);
+            return;
+        }
         const choice = {
             targetSlug: targetSlug,
             text: '',
@@ -192,52 +249,72 @@ export function setupEditorEvents() {
         _refreshPortalOutputs();
     });
 
+    // A link was unplugged from one input and plugged into another: retarget
+    // the existing choice and its markdown link (keeping text, prerequisite
+    // and mutation) instead of deleting and recreating it.
+    state.editor.on('connectionRewired', (d) => {
+        const sourceId = d.output_id;
+        const src = state.nodesData[sourceId];
+        const oldSlug = _slugForInputPort(d.from.input_id, d.from.input_class);
+        const newSlug = _slugForInputPort(d.to.input_id, d.to.input_class);
+        if (!src || !newSlug) {
+            // Not a single passage (e.g. a portal's "+N more" row): put it back.
+            state.editor.removeSingleConnection(sourceId, d.to.input_id, d.output_class, d.to.input_class);
+            state.editor.addConnection(sourceId, d.from.input_id, d.output_class, d.from.input_class);
+            showToast('Load the group to link to one of its hidden passages');
+            return;
+        }
+        src.choices = src.choices || [];
+        if (oldSlug && src.choices.some(c => c.targetSlug === newSlug)) {
+            // Already linked to the new target: the moved link merges into it.
+            stripChoiceAndLink(sourceId, oldSlug);
+        } else {
+            const choice = oldSlug ? src.choices.find(c => c.targetSlug === oldSlug) : null;
+            if (choice) {
+                choice.targetSlug = newSlug;
+            } else {
+                src.choices.push({ targetSlug: newSlug, text: '', prerequisite: '', mutation: '' });
+            }
+            const text = src.text || '';
+            const oldLink = oldSlug
+                ? new RegExp(`(\\[[^\\]]*\\]\\(node:)${escapeRegex(oldSlug)}(\\))`, 'g')
+                : null;
+            if (oldLink && oldLink.test(text)) {
+                src.text = text.replace(oldLink, `$1${newSlug}$2`);
+            } else {
+                const targetData = state.nodesData[d.to.input_id];
+                const label = targetData && !targetData.isPortal ? getNodeTitle(d.to.input_id) : newSlug;
+                src.text = text + (text ? '\n' : '') + `[${label}](node:${newSlug})`;
+            }
+            if (state.selectedNodeId === sourceId) {
+                setEditorValue(src.text);
+                renderChoices(sourceId);
+            }
+        }
+        validateDeadEnds();
+        validateOrphans();
+        _refreshPortalOutputs();
+        showToast('Link moved');
+    });
+
     state.editor.on('connectionRemoved', (data) => {
-        snapshotState();
+        // User unlinked an edge (undo snapshot was taken by the caller or via
+        // `beforeUserEdit`): remove the choice and its markdown link.
         const sourceId = data.output_id;
         const targetId = data.input_id;
         const targetData = state.nodesData[targetId];
-        const targetSlug = targetData ? getNodeSlug(targetId) : null;
-        // During a group collapse the removed node's connections are torn down so
-        // the group can become a portal. Preserve cross-group choices + markdown
-        // so the portal's inbound lines still render and nothing is lost on save.
-        const preserve = !!(targetSlug && state.collapsingSlugs && state.collapsingSlugs.has(targetSlug));
-        // Handle portal target removal: remove choice by slug
+        let targetSlug = null;
         if (targetData && targetData.isPortal) {
-            if (!preserve) {
-                const inputClass = data.input_class || 'input_1';
-                const match = inputClass.match(/input_(\d+)/);
-                if (match) {
-                    const idx = parseInt(match[1]) - 1;
-                    const portalSlugIds = targetData.portalSlugIds || [];
-                    if (idx < portalSlugIds.length) {
-                        const slug = portalSlugIds[idx].slug_id;
-                        if (state.nodesData[sourceId] && state.nodesData[sourceId].choices) {
-                            state.nodesData[sourceId].choices = state.nodesData[sourceId].choices.filter(c => c.targetSlug !== slug);
-                        }
-                        if (state.selectedNodeId === sourceId) renderChoices(sourceId);
-                    }
-                }
-            }
-            _refreshPortalOutputs();
-            return;
+            const match = (data.input_class || 'input_1').match(/input_(\d+)/);
+            const idx = match ? parseInt(match[1]) - 1 : -1;
+            const entry = (targetData.portalSlugIds || [])[idx];
+            targetSlug = entry ? (typeof entry === 'string' ? entry : entry.slug_id) : null;
+        } else if (targetData) {
+            targetSlug = getNodeSlug(targetId);
         }
-        if (!preserve) {
-            if (state.nodesData[sourceId] && state.nodesData[sourceId].choices) {
-                state.nodesData[sourceId].choices = state.nodesData[sourceId].choices.filter(c => c.targetSlug !== targetSlug);
-            }
-            // Clean up markdown link from content
-            if (state.nodesData[sourceId] && targetSlug) {
-                const linkRegex = new RegExp(`\\[[^\\]]*\\]\\(node:${targetSlug}\\)`, 'g');
-                state.nodesData[sourceId].text = (state.nodesData[sourceId].text || '').replace(linkRegex, '').replace(/\n{3,}/g, '\n\n').trim();
-                if (state.selectedNodeId === sourceId) {
-                    setEditorValue(state.nodesData[sourceId].text);
-                }
-            }
-        }
-        if (state.selectedNodeId === sourceId) {
-            renderChoices(sourceId);
-        }
+        if (targetSlug) stripChoiceAndLink(sourceId, targetSlug);
+        if (state.selectedNodeId === sourceId) renderChoices(sourceId);
+        showToast('Link removed');
         validateDeadEnds();
         validateOrphans();
         _refreshPortalOutputs();
@@ -275,6 +352,7 @@ function _createOverlay(nodeElement, nodeId) {
         <button data-overlay-action="edit" title="Edit">${SVG_EDIT}</button>
         <button data-overlay-action="delete" class="danger" title="Delete">${SVG_CLOSE}</button>
         ${isPortal ? '' : `<button data-overlay-action="link" class="success" title="Link">${SVG_LINK}</button>`}
+        <button data-overlay-action="menu" title="More actions" aria-label="More actions">&#8943;</button>
     `;
     nodeElement.appendChild(overlay);
 }

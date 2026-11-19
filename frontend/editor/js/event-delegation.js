@@ -2,7 +2,7 @@
 // Centralized DOM event listeners, keyboard shortcuts, modals, and save/load/export/import.
 import { state, generateUniqueSlug } from './state.js';
 import { escapeHtml, showToast, showLoader, hideLoader } from './ui-utils.js';
-import { undo, redo } from './history.js';
+import { undo, redo, snapshotState } from './history.js';
 import { runValidation, validateDeadEnds, validateOrphans } from './validation.js';
 import { getEditorValue } from './codemirror-setup.js';
 import {
@@ -26,7 +26,8 @@ import {
     deleteGroupFromPortal,
     collapseGroup,
     createPortalNode,
-    _refreshPortalOutputs
+    _refreshPortalOutputs,
+    _setupNodeCollapseButton
 } from './group-manager.js';
 import {
     editVariable,
@@ -50,14 +51,20 @@ import {
 } from './asset-explorer.js';
 import { ensureSidePanelNode, ensureSetupNode } from './graph-engine.js';
 import { api } from './api.js';
+import { setupSearchSuggestions } from './node-search.js';
+import { setupViewerOverlay, openGamePreview, openTutorial, isViewerOpen } from './viewer-overlay.js';
 
 let selectedLoadName = null;
 let contextMenuTargetId = null;
+let contextMenuConnection = null;
 
 export function setupTabs() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('active');
+                b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+            });
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             btn.classList.add('active');
             const tabId = btn.getAttribute('data-tab');
@@ -235,6 +242,8 @@ export function setupButtonDelegation() {
         if (!btn) return;
         const action = btn.dataset.action;
         if (!action) return;
+        // Links with a data-action (e.g. the Tutorial link) must not navigate.
+        if (btn.tagName === 'A') e.preventDefault();
 
         switch (action) {
             case 'addNode': addNode(); break;
@@ -244,7 +253,7 @@ export function setupButtonDelegation() {
             case 'exportGame': exportGame(); break;
             case 'previewGame': previewGame(); break;
             case 'runValidation': runValidation(); break;
-            case 'openTutorial': window.open('tutorial.html', '_blank'); break;
+            case 'openTutorial': openTutorial(); break;
             case 'showVariableForm': showVariableForm(); break;
             case 'addVariable': addVariable(); break;
             case 'hideVariableForm': hideVariableForm(); break;
@@ -314,12 +323,40 @@ export function setupContextMenu() {
 
     // Show context menu on right-click in the graph area
     graphEl.addEventListener('contextmenu', (e) => {
+        const connSvg = e.target.closest('svg.connection');
+        if (connSvg && !connSvg.classList.contains('portal-output')) {
+            const cls = (connSvg.className && connSvg.className.baseVal)
+                || connSvg.getAttribute('class')
+                || '';
+            const outMatch = cls.match(/node_out_node-(\d+)/);
+            const inMatch = cls.match(/node_in_node-(\d+)/);
+            if (outMatch && inMatch) {
+                e.preventDefault();
+                e.stopPropagation();
+                const outClassMatch = cls.match(/\b(output_\d+)\b/);
+                const inClassMatch = cls.match(/\b(input_\d+)\b/);
+                contextMenuTargetId = null;
+                contextMenuConnection = {
+                    output_id: parseInt(outMatch[1], 10),
+                    input_id: parseInt(inMatch[1], 10),
+                    output_class: outClassMatch ? outClassMatch[1] : 'output_1',
+                    input_class: inClassMatch ? inClassMatch[1] : 'input_1'
+                };
+                menuEl.innerHTML = `<button class="ctx-item danger" data-ctx-action="unlinkConnection">&#9986; Unlink Connection</button>`;
+                menuEl.style.display = 'block';
+                menuEl.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
+                menuEl.style.top = Math.min(e.clientY, window.innerHeight - 120) + 'px';
+                return;
+            }
+        }
+
         const nodeEl = e.target.closest('[data-id]');
         if (!nodeEl) return;
         e.preventDefault();
         e.stopPropagation();
 
         const nodeId = parseInt(nodeEl.dataset.id);
+        contextMenuConnection = null;
         contextMenuTargetId = nodeId;
         const data = state.nodesData[nodeId];
         if (!data) return;
@@ -360,9 +397,16 @@ export function setupContextMenu() {
         if (!btn) return;
         const action = btn.dataset.ctxAction;
         const nodeId = contextMenuTargetId;
+        const conn = contextMenuConnection;
         hideContextMenu();
 
         switch (action) {
+            case 'unlinkConnection':
+                if (conn && state.editor && state.editor.hasConnection(conn.output_id, conn.input_id, conn.output_class, conn.input_class)) {
+                    snapshotState();
+                    state.editor.removeSingleConnection(conn.output_id, conn.input_id, conn.output_class, conn.input_class, { notify: true });
+                }
+                break;
             case 'loadGroup':
                 loadGroupFromPortal(nodeId);
                 break;
@@ -399,6 +443,7 @@ export function hideContextMenu() {
     const menu = document.getElementById('context-menu');
     if (menu) menu.style.display = 'none';
     contextMenuTargetId = null;
+    contextMenuConnection = null;
 }
 
 export function filterNodes(query) {
@@ -433,6 +478,7 @@ export function filterNodes(query) {
 export function setupSearch() {
     const input = document.getElementById('node-search');
     if (!input) return;
+    setupSearchSuggestions();
     input.addEventListener('input', () => {
         clearTimeout(state.searchDebounceTimer);
         state.searchDebounceTimer = setTimeout(() => {
@@ -611,11 +657,10 @@ export async function confirmLoad() {
         closeModal();
         showLoader('Loading project...');
 
-        // Clear existing state
-        const idsToRemove = Object.keys(state.nodesData);
-        for (const idStr of idsToRemove) {
-            state.editor.removeNodeId('node-' + idStr);
-        }
+        // Clear existing state (engine.clear() is silent and also drops
+        // portal output lines and any stale selection)
+        state.editor.clear();
+        state.portalOutputSvg = {};
         state.nodesData = {};
         state.slugToNodeId = {};
         state.variables = {};
@@ -761,7 +806,9 @@ export async function exportGame() {
     showLoader('Exporting...');
     try {
         await saveProjectSilent();
-        await api.exportProjectZip(state.currentProjectName);
+        const res = await api.exportProjectZip(state.currentProjectName);
+        // Desktop/Android app: the zip is written locally; tell the user where.
+        if (res && res.path) showToast('Exported to ' + res.path);
     } catch (err) {
         alert('Export failed: ' + err.message);
     } finally {
@@ -778,12 +825,9 @@ export async function previewGame() {
     try {
         await saveProjectSilent();
         const data = await api.buildPreviewHtml(state.currentProjectName);
-        if (data && data.url) {
-            window.open(data.url, '_blank');
-        } else if (data && data.html) {
-            const blob = new Blob([data.html], { type: 'text/html' });
-            const blobUrl = URL.createObjectURL(blob);
-            window.open(blobUrl, '_blank');
+        // In-app overlay (no new tab: unavailable in the Tauri/Android webview).
+        if (!openGamePreview(state.currentProjectName, data)) {
+            throw new Error('Preview returned no content');
         }
     } catch (err) {
         alert('Preview failed: ' + err.message);
@@ -926,6 +970,7 @@ export function importNode() {
         group: obj.group || ''
     };
     state.slugToNodeId[slug] = nodeId;
+    _setupNodeCollapseButton(nodeId);
 
     if (is_start) {
         for (const [nid, d] of Object.entries(state.nodesData)) {
@@ -947,6 +992,9 @@ export function importNode() {
 
 export function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
+        // Editor shortcuts (Delete, Ctrl+Z, ...) must not act on the hidden
+        // editor while the preview / tutorial overlay is open.
+        if (isViewerOpen()) return;
         const tag = e.target.tagName;
         const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
         const modKey = e.ctrlKey || e.metaKey;
@@ -987,7 +1035,13 @@ export function setupKeyboardShortcuts() {
 
         // Delete / Backspace — Delete selected node (only when not in input)
         if ((e.key === 'Delete' || e.key === 'Backspace') && !isInput) {
+            // The canvas already handled it (deleted the selected connection).
+            if (e.defaultPrevented) return;
             if (e.key === 'Backspace') e.preventDefault();
+            if (state.editor && state.editor.connection_selected) {
+                state.editor.removeConnection();
+                return;
+            }
             deleteCurrentNode();
             return;
         }
@@ -1006,12 +1060,12 @@ export function setupKeyboardShortcuts() {
                 return;
             }
             const modalOverlay = document.getElementById('modal-overlay');
-            if (modalOverlay.style.display !== 'none') {
+            if (modalOverlay.style.display === 'flex') {
                 closeModal();
                 return;
             }
+            if (state.editor) state.editor.clearSelection();
             if (state.selectedNodeId !== null) {
-                state.editor.editor_selected = false;
                 closePassageEditor();
                 if (document.activeElement) document.activeElement.blur();
                 return;
@@ -1034,4 +1088,5 @@ export function setupDelegation() {
     setupButtonDelegation();
     setupSearch();
     setupContextMenu();
+    setupViewerOverlay();
 }

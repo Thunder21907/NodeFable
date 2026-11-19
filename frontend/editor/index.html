@@ -8,9 +8,6 @@
     <link rel="icon" type="image/png" sizes="32x32" href="Assets/Logo/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="Assets/Logo/favicon-16x16.png">
     <link rel="apple-touch-icon" href="Assets/Logo/apple-touch-icon.png">
-    <!-- Drawflow -->
-    <script src="lib/drawflow.min.js"></script>
-    <link rel="stylesheet" href="lib/drawflow.min.css">
     <!-- CodeMirror -->
     <link rel="stylesheet" href="lib/codemirror/codemirror.min.css">
     <link rel="stylesheet" href="lib/codemirror/addon/hint/show-hint.min.css">
@@ -130,6 +127,130 @@
             transform-origin: 0 0;
             position: relative;
             z-index: 1;
+        }
+        /* No `display` here: .tab-content / .tab-content.active own visibility. */
+        .parent-drawflow {
+            overflow: hidden;
+            touch-action: none;
+            outline: none;
+        }
+        .drawflow {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            user-select: none;
+            transform-origin: 0 0;
+        }
+        .drawflow .drawflow-node {
+            display: flex;
+            align-items: center;
+            position: absolute;
+            background: #272727;
+            width: 180px;
+            min-height: 40px;
+            border-radius: 6px;
+            border: 2px solid #3a3a3a;
+            color: #ddd;
+            z-index: 2;
+            padding: 12px;
+            cursor: move;
+        }
+        .drawflow .drawflow-node .drawflow_content_node {
+            width: 100%;
+            display: block;
+            text-align: center;
+            word-break: break-word;
+        }
+        .drawflow .drawflow-node .inputs,
+        .drawflow .drawflow-node .outputs {
+            width: 0px;
+        }
+        .drawflow .drawflow-node .input,
+        .drawflow .drawflow-node .output {
+            position: relative;
+            width: 20px;
+            height: 20px;
+            background: #1e1e1e;
+            border-radius: 50%;
+            border: 2px solid #888;
+            cursor: crosshair;
+            z-index: 1;
+            margin-bottom: 5px;
+        }
+        .drawflow .drawflow-node .input {
+            left: -27px;
+            top: 2px;
+        }
+        .drawflow .drawflow-node .output {
+            right: -3px;
+            top: 2px;
+        }
+        .drawflow .drawflow-node .input:hover,
+        .drawflow .drawflow-node .output:hover {
+            background: var(--accent-color);
+            border-color: #fff;
+        }
+        .drawflow svg.connection {
+            position: absolute;
+            inset: 0;
+            overflow: visible;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .drawflow .connection .main-path {
+            fill: none;
+            stroke-width: 3px;
+            stroke: var(--accent-color, #3498db);
+            vector-effect: non-scaling-stroke;
+            shape-rendering: geometricPrecision;
+            /* Only the visible stroke is clickable, not the area under the curve. */
+            pointer-events: visibleStroke;
+        }
+        .drawflow svg.temp-connection .main-path {
+            pointer-events: none;
+            stroke-dasharray: 6,4;
+        }
+        .drawflow .connection .main-path:hover {
+            stroke: #f39c12;
+            cursor: pointer;
+        }
+        .drawflow .connection .main-path.selected {
+            stroke: #f39c12;
+            stroke-width: 4px;
+        }
+        .drawflow .connection .hit-path {
+            fill: none;
+            stroke: transparent;
+            stroke-width: 14px;
+            vector-effect: non-scaling-stroke;
+            pointer-events: stroke;
+            cursor: pointer;
+        }
+        #canvas-zoom-controls {
+            position: absolute;
+            right: 16px;
+            bottom: 16px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            background: rgba(30,30,30,0.9);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 4px;
+        }
+        #canvas-zoom-controls button {
+            padding: 6px 10px;
+            min-width: 36px;
+            font-size: 0.85rem;
+            background: #2a2a2a;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: #eee;
+        }
+        #canvas-zoom-controls button:hover {
+            background: #3a3a3a;
+            border-color: var(--accent-color);
         }
 
         #tab-markdown {
@@ -564,8 +685,13 @@
             min-width: 45px;
         }
 
-        .drawflow .drawflow-node:hover .node-overlay {
+        .drawflow .drawflow-node:hover .node-overlay,
+        .drawflow .drawflow-node.selected .node-overlay {
             display: flex;
+        }
+        .drawflow .drawflow-node:hover,
+        .drawflow .drawflow-node.selected {
+            z-index: 10;
         }
 
         body.is-linking {
@@ -630,7 +756,7 @@
         .node-collapse-btn:hover {
             transform: scale(1.2);
         }
-        .connection.portal-output .main-path {
+        .drawflow .connection.portal-output .main-path {
             stroke: var(--accent-color, #f39c12);
             stroke-dasharray: 5,5;
             opacity: 0.5;
@@ -688,9 +814,11 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 24px;
-            min-width: 400px;
+            min-width: 0;
+            width: min(92vw, 480px);
             max-width: 500px;
             max-height: 70vh;
+            box-sizing: border-box;
             display: flex;
             flex-direction: column;
         }
@@ -812,6 +940,127 @@
         .node-search-match .drawflow_content_node {
             box-shadow: 0 0 12px rgba(52, 152, 219, 0.6);
             border-color: var(--accent-color, #3498db) !important;
+        }
+        /* In-app viewer (preview / tutorial) */
+        #preview-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 900;
+            display: flex;
+            flex-direction: column;
+            background: #0f0f0f;
+        }
+        #preview-overlay.is-hidden { display: none; }
+        .preview-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 12px;
+            padding-top: calc(8px + env(safe-area-inset-top, 0px));
+            background: #1a1a1a;
+            border-bottom: 1px solid var(--border-color, #444);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+        .preview-title {
+            color: #ddd;
+            font-weight: 600;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1 1 auto;
+        }
+        .preview-actions { display: flex; gap: 8px; flex-shrink: 0; }
+        .preview-actions button { padding: 6px 12px; white-space: nowrap; }
+        .preview-actions button.is-hidden { display: none; }
+        #preview-frame {
+            flex: 1;
+            width: 100%;
+            border: 0;
+            background: #0f0f0f;
+        }
+        body.viewer-open { overflow: hidden; }
+
+        /* Search suggestions dropdown (js/node-search.js); fixed so the
+           header's overflow clipping on narrow screens can't cut it off. */
+        .search-suggestions {
+            position: fixed;
+            z-index: 700;
+            margin: 0;
+            padding: 4px;
+            list-style: none;
+            max-height: min(50vh, 360px);
+            overflow-y: auto;
+            background: #252525;
+            border: 1px solid var(--border-color, #444);
+            border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+            max-width: calc(100vw - 16px);
+        }
+        .search-suggestion {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #ddd;
+            font-size: 0.82rem;
+        }
+        .search-suggestion.active {
+            background: rgba(52, 152, 219, 0.25);
+            outline: 1px solid var(--accent-color, #3498db);
+        }
+        .search-suggestion .ss-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .search-suggestion .ss-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #999;
+            font-size: 0.72rem;
+            min-width: 0;
+        }
+        .search-suggestion .ss-slug {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .search-suggestion mark {
+            background: rgba(243, 156, 18, 0.35);
+            color: inherit;
+            border-radius: 2px;
+        }
+        .search-suggestion .ss-badge {
+            flex-shrink: 0;
+            padding: 0 6px;
+            border-radius: 8px;
+            background: #3a3a3a;
+            color: #bbb;
+        }
+        .search-suggestion-empty {
+            padding: 8px 10px;
+            color: #888;
+            font-size: 0.8rem;
+        }
+        @keyframes nodeFocusFlash {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); }
+            30% { box-shadow: 0 0 0 6px rgba(243, 156, 18, 0.75); }
+        }
+        .drawflow .drawflow-node.node-focus-flash {
+            animation: nodeFocusFlash 0.6s ease-out 2;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .drawflow .drawflow-node.node-focus-flash {
+                animation: none;
+                outline: 3px solid #f39c12;
+            }
         }
         .node-search-mismatch {
             opacity: 0.15;
@@ -1031,15 +1280,158 @@
         .modal-overlay { animation: fadeIn 0.2s ease; }
         .modal { animation: fadeIn 0.2s ease; }
         #loader-overlay { animation: fadeIn 0.2s ease; }
+
+        /* Responsive / Touch Drawers */
+        .mobile-drawer-btn { display: none; }
+        .mobile-drawer-close { display: none; }
+        .drawer-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .drawer-header-row h2 {
+            margin-bottom: 0;
+        }
+        #drawer-backdrop { display: none; }
+
+        @media (max-width: 1024px) {
+            .mobile-drawer-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 6px 10px;
+                background: #2d2d2d;
+                border: 1px solid var(--border-color);
+            }
+            .mobile-drawer-close {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 4px 10px;
+                font-size: 1.1rem;
+                color: #ccc;
+            }
+            #app {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+                min-width: 0;
+                max-width: 100vw;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            header {
+                grid-column: 1;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 8px 12px;
+                height: auto;
+                min-height: var(--header-height);
+                min-width: 0;
+                max-width: 100vw;
+                width: 100%;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+            .toolbar {
+                width: 100%;
+                min-width: 0;
+                overflow-x: auto;
+                max-width: 100%;
+                padding-bottom: 2px;
+            }
+            #editor-panel {
+                grid-column: 1;
+                grid-row: 2;
+                min-width: 0;
+                max-width: 100vw;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            #tab-graph,
+            #tab-markdown {
+                min-width: 0;
+                max-width: 100vw;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            #var-panel, #sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                z-index: 600;
+                width: min(88vw, 360px);
+                max-width: 100vw;
+                box-sizing: border-box;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+                transition: transform 0.22s ease;
+            }
+            #var-panel {
+                left: 0;
+                transform: translateX(-105%);
+            }
+            #var-panel.drawer-open {
+                transform: translateX(0);
+            }
+            #sidebar {
+                right: 0;
+                transform: translateX(105%);
+            }
+            #sidebar.drawer-open {
+                transform: translateX(0);
+            }
+            #drawer-backdrop {
+                display: block;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.55);
+                z-index: 550;
+            }
+            #drawer-backdrop.is-hidden {
+                display: none;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .logo {
+                font-size: 0.9rem;
+                gap: 6px;
+            }
+            .logo img {
+                height: 24px;
+            }
+            .mobile-drawer-btn {
+                padding: 5px 8px;
+                font-size: 0.78rem;
+            }
+            .search-container {
+                flex: 1 1 100%;
+                width: 100%;
+                min-width: 0;
+                max-width: none;
+                margin: 0;
+            }
+            .toolbar button {
+                padding: 6px 10px;
+                font-size: 0.78rem;
+                white-space: nowrap;
+            }
+            .tab-btn {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
+        }
     </style>
 </head>
 <body>
 
 <div id="app">
     <header>
+        <button type="button" id="toggle-vars-drawer" class="mobile-drawer-btn" aria-label="Toggle Variables and Assets panel" title="Variables & Assets">&#9776; Vars</button>
         <div class="logo"><img src="Assets/Logo/android-chrome-192x192.png" alt="NodeFable">NodeFable <strong class="accent">Canvas</strong></div>
+        <button type="button" id="toggle-inspector-drawer" class="mobile-drawer-btn" aria-label="Toggle Passage Inspector panel" title="Passage Inspector">&#9998; Inspector</button>
         <div class="search-container">
-            <input type="text" id="node-search" placeholder="Search nodes..." autocomplete="off">
+            <input type="text" id="node-search" placeholder="Search nodes..." autocomplete="off" aria-label="Search nodes">
         </div>
         <div class="toolbar">
             <button data-action="addNode">+ Add Node</button>
@@ -1055,16 +1447,16 @@
     </header>
 
     <aside id="var-panel">
-        <h2 class="section-title">Global Variables</h2>
+        <div class="drawer-header-row"><h2 class="section-title">Global Variables</h2><button type="button" id="close-vars-drawer" class="mobile-drawer-close" aria-label="Close Variables panel">&times;</button></div>
         <button data-action="showVariableForm" class="btn-block">+ Add Variable</button>
 
         <div id="var-form" class="var-form is-hidden">
-            <select id="var-scope">
+            <select id="var-scope" aria-label="Variable scope">
                 <option value="state">state</option>
                 <option value="setup">setup</option>
             </select>
-            <input type="text" id="var-name" placeholder="Variable name (e.g. player_health)">
-            <select id="var-type">
+            <input type="text" id="var-name" placeholder="Variable name (e.g. player_health)" aria-label="Variable name">
+            <select id="var-type" aria-label="Variable type">
                 <option value="int">int</option>
                 <option value="float">float</option>
                 <option value="string">String</option>
@@ -1073,7 +1465,7 @@
                 <option value="dict">dict</option>
             </select>
             <div id="var-elem-type-wrap" class="is-hidden">
-                <select id="var-elem-type">
+                <select id="var-elem-type" aria-label="Array element type">
                     <option value="string">String</option>
                     <option value="int">int</option>
                     <option value="float">float</option>
@@ -1081,7 +1473,7 @@
                 </select>
                 <p class="text-muted-xs">Element type — values are comma-separated.</p>
             </div>
-            <input type="text" id="var-value" placeholder="Initial value">
+            <input type="text" id="var-value" placeholder="Initial value" aria-label="Initial value">
             <div class="form-actions">
                 <button id="var-submit-btn" data-action="addVariable" class="flex-1">Add</button>
                 <button data-action="hideVariableForm" class="flex-1 btn-secondary">Cancel</button>
@@ -1101,17 +1493,24 @@
     </aside>
 
     <main id="editor-panel">
-        <div class="tab-bar">
-            <button class="tab-btn active" data-tab="graph">Graph Editor</button>
-            <button class="tab-btn" data-tab="markdown">Markdown Editor</button>
-            <button class="tab-btn" data-tab="asset-explorer">Asset Explorer</button>
+        <div class="tab-bar" role="tablist">
+            <button class="tab-btn active" data-tab="graph" role="tab" aria-selected="true">Graph Editor</button>
+            <button class="tab-btn" data-tab="markdown" role="tab" aria-selected="false">Markdown Editor</button>
+            <button class="tab-btn" data-tab="asset-explorer" role="tab" aria-selected="false">Asset Explorer</button>
         </div>
-        <div id="tab-graph" class="tab-content active"></div>
+        <div id="tab-graph" class="tab-content active" role="tabpanel">
+            <div id="canvas-zoom-controls" aria-label="Canvas zoom controls">
+                <button type="button" data-canvas-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button type="button" data-canvas-zoom="reset" title="Reset zoom (100%)" aria-label="Reset zoom">1:1</button>
+                <button type="button" data-canvas-zoom="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+                <button type="button" data-canvas-zoom="fit" title="Fit all nodes in view" aria-label="Fit all nodes in view">Fit</button>
+            </div>
+        </div>
         <div id="tab-markdown" class="tab-content">
             <div id="passage-content-editor"></div>
             <textarea id="passage-content-native" class="is-hidden" spellcheck></textarea>
             <div class="helper-text">
-                <span>Need syntax help? Visit the <a href="tutorial.html" target="_blank">Tutorial</a>.</span>
+                <span>Need syntax help? Visit the <a href="tutorial.html" data-action="openTutorial">Tutorial</a>.</span>
                 <button type="button" id="spellcheck-toggle" class="off" onclick="toggleSpellcheck()" title="Toggle spellcheck">🔤 <span id="spellcheck-status">OFF</span></button>
             </div>
         </div>
@@ -1136,7 +1535,7 @@
 
     <aside id="sidebar">
         <div class="sidebar-section" id="inspector-panel">
-            <h2 id="inspector-title">Passage Editor</h2>
+            <div class="drawer-header-row"><h2 id="inspector-title">Passage Editor</h2><button type="button" id="close-inspector-drawer" class="mobile-drawer-close" aria-label="Close Passage Inspector">&times;</button></div>
             <p id="no-selection-msg" class="text-muted-lg">Select a node to edit its passage.</p>
 
 <div id="passage-editor" class="is-hidden">
@@ -1166,6 +1565,7 @@
                 <select id="passage-group" onchange="changeNodeGroup(this.value)">
                     <option value="">— Ungrouped —</option>
                 </select>
+                <button type="button" id="passage-collapse-group-btn" class="btn-secondary btn-block is-hidden" style="margin-bottom: 12px;">&#11014; Collapse Group</button>
 
                 <div class="md-toolbar">
                     <button type="button" class="md-btn" onclick="insertMarkdown('**','**')" title="Bold"><b>B</b></button>
@@ -1207,6 +1607,11 @@
                 <label for="group-editor-label">Group Label</label>
                 <input type="text" id="group-editor-label" placeholder="Display name">
                 <button id="group-editor-save" class="btn-primary" style="width:100%;margin:6px 0 10px 0">Save Group</button>
+                <div class="form-actions" style="margin-bottom: 12px;">
+                    <button type="button" id="group-editor-load" class="flex-1 btn-primary">Load Group</button>
+                    <button type="button" id="group-editor-move" class="flex-1 btn-secondary">Move To</button>
+                    <button type="button" id="group-editor-delete" class="flex-1 danger">Delete</button>
+                </div>
                 <h3>Nodes in Group</h3>
                 <div id="group-node-list">
                     <p id="no-group-nodes-msg" class="text-muted-sm">No nodes in this group.</p>
@@ -1214,6 +1619,20 @@
             </div>
         </div>
     </aside>
+</div>
+
+<div id="drawer-backdrop" class="is-hidden"></div>
+
+<!-- In-app viewer for the game preview and the tutorial (js/viewer-overlay.js) -->
+<div id="preview-overlay" class="is-hidden" role="dialog" aria-modal="true" aria-labelledby="preview-overlay-title">
+    <div class="preview-bar">
+        <span id="preview-overlay-title" class="preview-title"></span>
+        <div class="preview-actions">
+            <button type="button" id="preview-restart" class="btn-secondary" title="Restart from the start node (clears the preview autosave)">&#8635; Restart</button>
+            <button type="button" id="preview-close" class="btn-primary" title="Back to the editor (Esc)">&#10005; Back to Editor</button>
+        </div>
+    </div>
+    <iframe id="preview-frame" title="Preview"></iframe>
 </div>
 
 <div id="loader-overlay" class="is-hidden">
@@ -1233,8 +1652,8 @@
 </div>
 
 <div id="modal-overlay" class="modal-overlay is-hidden">
-    <div id="save-modal" class="modal is-hidden">
-        <h3>Save Project</h3>
+    <div id="save-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="save-modal-title">
+        <h3 id="save-modal-title">Save Project</h3>
         <input type="text" id="save-name-input" placeholder="Project name..." autocomplete="off">
         <div id="save-list" class="save-list"></div>
         <div class="modal-actions">
@@ -1242,16 +1661,16 @@
             <button data-action="closeModal" class="btn-secondary">Cancel</button>
         </div>
     </div>
-    <div id="load-modal" class="modal is-hidden">
-        <h3>Load Project</h3>
+    <div id="load-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="load-modal-title">
+        <h3 id="load-modal-title">Load Project</h3>
         <div id="load-list" class="save-list"></div>
         <div class="modal-actions">
             <button class="success" data-action="confirmLoad">Load</button>
             <button data-action="closeModal" class="btn-secondary">Cancel</button>
         </div>
     </div>
-    <div id="import-modal" class="modal is-hidden">
-        <h3>Import Node</h3>
+    <div id="import-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+        <h3 id="import-modal-title">Import Node</h3>
         <p class="text-muted-sm" style="margin-bottom:12px;">Paste a node JSON object below:</p>
         <textarea id="import-textarea" placeholder='{&#10;  "id": "my_node",&#10;  "title": "My Node",&#10;  "text": "Content here..."&#10;}'></textarea>
         <div id="import-error" class="is-hidden"></div>

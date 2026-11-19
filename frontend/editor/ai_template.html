@@ -1,0 +1,2429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#141414">
+<title>Story Game</title>
+<link rel="stylesheet" href="template_styles.css">
+<style>
+#ai-config-btn, #mobile-ai-btn { margin-top: 6px; }
+#ai-config-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+#ai-config-modal { background: #1e1e1e; border: 1px solid #3a3a3a; border-radius: 8px; padding: 20px; width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; color: #eee; }
+#ai-config-modal h3 { margin: 0 0 12px; font-size: 1.1rem; }
+.ai-field { margin-bottom: 10px; }
+.ai-field label { display: block; font-size: 0.82rem; color: #bbb; margin-bottom: 4px; }
+.ai-field input, .ai-field textarea { width: 100%; box-sizing: border-box; background: #2b2b2b; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 7px 9px; font-family: inherit; font-size: 0.9rem; }
+.ai-field-row { display: flex; gap: 10px; }
+.ai-field-row .ai-field { flex: 1; }
+.ai-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+#ai-status-badge { font-size: 0.78rem; color: #9cdcfe; margin-top: 8px; min-height: 1.1em; }
+</style>
+</head>
+<body>
+<div id="app">
+    <aside id="side-panel" aria-label="Status and menu">
+        <div id="nav-row">
+            <button id="nav-back" onclick="game.goBack()" disabled aria-label="Back" title="Back"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 10L8 14L6 14L-2.62268e-07 8L6 2L8 2L8 6L16 6L16 10L8 10Z"/></svg></button>
+            <button id="nav-forward" onclick="game.goForward()" disabled aria-label="Forward" title="Forward"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 6L8 2L10 2L16 8L10 14L8 14L8 10L-1.74845e-07 10L-3.01991e-07 6L8 6Z"/></svg></button>
+        </div>
+        <div id="side-panel-content"></div>
+        <button id="new-game-btn" onclick="game.newGame()">New Game</button>
+        <button id="save-load-btn" onclick="game.showSaveLoad()">Save / Load</button>
+        <button id="ai-config-btn" onclick="game._ai.showConfig()">AI Settings</button>
+        <div id="ai-status-badge" aria-live="polite"></div>
+    </aside>
+    <div id="side-panel-backdrop" onclick="game.closeMobilePanel()"></div>
+    <main id="main-panel">
+        <div id="mobile-bar">
+            <button id="mobile-menu-btn" type="button" onclick="game.toggleMobilePanel()" aria-label="Toggle status panel" aria-controls="side-panel" aria-expanded="false">&#9776; Status</button>
+            <div id="mobile-nav-row">
+                <button id="mobile-nav-back" type="button" onclick="game.goBack()" disabled aria-label="Back" title="Back"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 10L8 14L6 14L-2.62268e-07 8L6 2L8 2L8 6L16 6L16 10L8 10Z"/></svg></button>
+                <button id="mobile-nav-forward" type="button" onclick="game.goForward()" disabled aria-label="Forward" title="Forward"><svg viewBox="0 0 16 16" fill="currentColor" width="1em" height="1em"><path d="M8 6L8 2L10 2L16 8L10 14L8 14L8 10L-1.74845e-07 10L-3.01991e-07 6L8 6Z"/></svg></button>
+            </div>
+            <button id="mobile-save-btn" type="button" onclick="game.showSaveLoad()" aria-label="Save or Load Game">Save / Load</button>
+            <button id="mobile-ai-btn" type="button" onclick="game._ai.showConfig()" aria-label="AI Settings">AI</button>
+        </div>
+        <div id="main-scroll">
+            <div id="passage-content"></div>
+        </div>
+    </main>
+
+    <div id="save-load-overlay" style="display:none;">
+        <div id="save-load-modal" role="dialog" aria-modal="true" aria-labelledby="save-load-title">
+            <h3 id="save-load-title">Save / Load Game</h3>
+            <div id="save-slots"></div>
+            <button id="save-load-close" onclick="game.hideSaveLoad()">Close</button>
+        </div>
+    </div>
+
+    <div id="ai-config-overlay" style="display:none;">
+        <div id="ai-config-modal" role="dialog" aria-modal="true" aria-labelledby="ai-config-title">
+            <h3 id="ai-config-title">AI World Generator Settings</h3>
+            <div class="ai-field">
+                <label><input type="checkbox" id="ai-cfg-enabled" style="width:auto;margin-right:6px;">Enable live AI generation</label>
+            </div>
+            <div class="ai-field">
+                <label for="ai-cfg-endpoint">OpenAI-Compatible Endpoint URL</label>
+                <input id="ai-cfg-endpoint" type="text" placeholder="http://localhost:11434/v1/chat/completions">
+            </div>
+            <div class="ai-field">
+                <label for="ai-cfg-apikey">API Key (optional for local models)</label>
+                <input id="ai-cfg-apikey" type="password" placeholder="sk-...">
+            </div>
+            <div class="ai-field-row">
+                <div class="ai-field">
+                    <label for="ai-cfg-model">Model</label>
+                    <input id="ai-cfg-model" type="text" placeholder="llama3.2 / gpt-4o-mini">
+                </div>
+                <div class="ai-field">
+                    <label for="ai-cfg-depth">Lookahead Depth</label>
+                    <input id="ai-cfg-depth" type="number" min="1" max="3" step="1">
+                </div>
+            </div>
+            <div class="ai-field">
+                <label for="ai-cfg-world">World / Tone Prompt</label>
+                <textarea id="ai-cfg-world" rows="3" placeholder="Describe the setting, tone, and rules for generated passages..."></textarea>
+            </div>
+            <div class="ai-modal-actions">
+                <button type="button" onclick="game._ai.hideConfig()">Cancel</button>
+                <button type="button" onclick="game._ai.saveConfigFromModal()">Save &amp; Scan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// __STORY_DATA_PLACEHOLDER__
+
+const game = {
+    state: {},
+    currentNodeId: null,
+    nodes: {},
+    startNode: null,
+    sidePanelNodeId: null,
+    _freshEntry: false,
+    _inInit: false,
+    _renderOnly: false,
+    _renderOnlyWarned: new Set(),
+    temp: {},
+    setup: null,
+    helper: null,
+    _bootSetup: false,
+    _helpersInstalled: false,
+    _functions: {},
+    _fnDepth: 0,
+    _fnReturn: undefined,
+    _inFn: false,
+
+    init(data) {
+        this._installHelpers();
+        this.projectName = data.name;
+        document.title = this.projectName;
+        this.state = { ...data.variables };
+        this.state._visited = {};
+        this._originalVars = JSON.parse(JSON.stringify(data.variables));
+        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
+        this._audio = {
+            tracks: {},
+            active: new Set(),
+            musicVolume: 1,
+            sfxVolume: 1,
+
+            ensurePlaying(url, opts) {
+                if (!window.Audio) return;
+                opts = opts || {};
+                const ch = opts.channel || 'music';
+                let track = this.tracks[url];
+                if (!track) {
+                    try {
+                        track = new Audio(url);
+                        // Preview inside the app: assets come from the nfasset://
+                        // scheme; request them in CORS mode (see _assetCorsAttr).
+                        if (window.NF_ASSET_CORS) track.crossOrigin = 'anonymous';
+                        track.preload = 'metadata';
+                    } catch (e) { return; }
+                    this.tracks[url] = track;
+                    track._nfState = 'stopped';
+                    track._nfChannel = ch;
+                    track._nfVolume = opts.volume == null ? 1 : opts.volume;
+                }
+                track.loop = !!opts.loop;
+                track._nfChannel = ch;
+                track._nfVolume = opts.volume == null ? 1 : opts.volume;
+                const baseVol = this.chVolume(ch) * (track._nfVolume || 1);
+                if (track._nfState === 'playing' && !track.paused && !track.ended) {
+                    track.volume = baseVol;
+                    return;
+                }
+                if (track._nfState === 'paused' && track.currentTime > 0) {
+                    track.volume = baseVol;
+                    this._playWithFade(track, baseVol, opts.fade || 0);
+                    return;
+                }
+                track.currentTime = 0;
+                track.volume = opts.fade > 0 ? 0 : baseVol;
+                this._playWithFade(track, baseVol, opts.fade || 0);
+            },
+
+            _playWithFade(track, targetVol, fadeMs) {
+                track._nfState = 'playing';
+                const start = performance.now();
+                const ramp = () => {
+                    const elapsed = performance.now() - start;
+                    const v = fadeMs > 0 ? Math.min(targetVol, targetVol * elapsed / fadeMs) : targetVol;
+                    track.volume = v;
+                    if (v < targetVol) requestAnimationFrame(ramp);
+                };
+                try { track.play().catch(() => {}); } catch (e) {}
+                if (fadeMs > 0) ramp(); else track.volume = targetVol;
+            },
+
+            chVolume(ch) {
+                return ch === 'sfx' ? this.sfxVolume : this.musicVolume;
+            },
+
+            pauseTrack(url) {
+                const track = this.tracks[url];
+                if (track) { track.pause(); track._nfState = 'paused'; }
+            },
+
+            stopTrack(url) {
+                const track = this.tracks[url];
+                if (track) {
+                    track.pause();
+                    track.currentTime = 0;
+                    track._nfState = 'stopped';
+                }
+            },
+
+            restartTrack(url) {
+                const track = this.tracks[url];
+                if (track) {
+                    track.currentTime = 0;
+                    track._nfState = 'stopped';
+                    this._playWithFade(track, this.chVolume(track._nfChannel || 'music') * (track._nfVolume || 1), 0);
+                }
+            },
+
+            stopUndeclared() {
+                for (const url of Object.keys(this.tracks)) {
+                    if (!this.active.has(url)) this.stopTrack(url);
+                }
+                this.active = new Set();
+            },
+
+            stopAll() {
+                for (const url of Object.keys(this.tracks)) this.stopTrack(url);
+                this.tracks = {};
+                this.active = new Set();
+            },
+
+            setMasterVolume(channel, v) {
+                if (channel === 'sfx') this.sfxVolume = v; else this.musicVolume = v;
+                for (const url of Object.keys(this.tracks)) {
+                    const track = this.tracks[url];
+                    if (track && (track._nfChannel || 'music') === channel) {
+                        track.volume = this.chVolume(channel) * (track._nfVolume || 1);
+                    }
+                }
+            },
+
+            directive(params) {
+                if (!params || !window.Audio) return;
+                const parts = params.split(',').map(s => s.trim());
+                const url = parts.shift();
+                if (!url) return;
+                let channel = 'music';
+                let loop = false;
+                let volume = 1;
+                let fade = 0;
+                let verb = null;
+                for (const p of parts) {
+                    if (!p) continue;
+                    const eqI = p.indexOf('=');
+                    const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+                    const val = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+                    if (key === 'music' || key === 'sfx') { channel = key; }
+                    else if (key === 'loop') { loop = val === '' || val.toLowerCase() !== 'false'; }
+                    else if (key === 'volume') { const v = parseFloat(val); if (!isNaN(v)) volume = Math.max(0, Math.min(1, v)); }
+                    else if (key === 'fade') { const f = parseInt(val, 10); if (!isNaN(f)) fade = Math.max(0, f); }
+                    else if (key === 'stop' || key === 'pause' || key === 'restart') { verb = key; }
+                }
+                if (verb) {
+                    this[verb + 'Track'](url);
+                    return;
+                }
+                this.active.add(url);
+                this.ensurePlaying(url, { channel: channel, loop: loop, volume: volume, fade: fade });
+            },
+        };
+        this._actionBlocks = [];
+        this._actionBlockLinks = [];
+        this._liveRegions = [];
+        this._liveTimers = [];
+        this._history = [];
+        this._historyIndex = -1;
+        this._varValues = [];
+        this._includeCount = 0;
+        this._includeLimitNotified = false;
+        this._includedChoices = [];
+        for (const n of data.nodes) {
+            this.nodes[n.id] = n;
+            if (n.id === 'side_panel') this.sidePanelNodeId = n.id;
+        }
+        this._authoredNodeIds = new Set(Object.keys(this.nodes));
+
+        // Register function catalogues into a global name-index before the setup
+        // node boots, so boot-time directives can call {fn:} helpers.
+        this._functions = {};
+        for (const n of data.nodes) {
+            if (n.is_function && typeof n.text === 'string') this._registerFnCatalogue(n.text);
+        }
+
+        // Build the immutable `setup` scope before the first render: seed from
+        // the saved setup constants, then run the reserved `setup` node (which may
+        // add/replace), then deep-freeze.
+        this._bootSetup = true;
+        this.setup = { ...(data.setup || {}) };
+        this.temp = {};
+        this._freshEntry = true;
+        const setupNode = this.nodes['setup'];
+        if (setupNode && typeof setupNode.text === 'string') this._processDirectives(setupNode.text || '', false);
+        this._freshEntry = false;
+        this._bootSetup = false;
+        this.setup = this._freezeSetup(this.setup);
+
+        const nodeIds = Object.keys(this.nodes);
+        const mainNodeIds = nodeIds.filter(id =>
+            id !== 'side_panel' && id !== 'setup' &&
+            !(this.nodes[id] && this.nodes[id].is_function)
+        );
+        const explicitStart = mainNodeIds.find(id => this.nodes[id].is_start === true);
+        this.startNode = explicitStart || (mainNodeIds.length > 0 ? mainNodeIds[0] : (nodeIds.length > 0 ? nodeIds[0] : null));
+
+        document.getElementById('app').addEventListener('click', (e) => {
+            let link = e.target.closest('a[data-node]');
+            if (link) {
+                e.preventDefault();
+                if (!link.classList.contains('disabled')) this.navigateTo(link.dataset.node, parseInt(link.dataset.choiceIndex));
+                return;
+            }
+            link = e.target.closest('a[data-action-block]');
+            if (link) {
+                e.preventDefault();
+                if (!link.classList.contains('disabled')) this.applyActionBlock(parseInt(link.dataset.actionBlock, 10));
+            }
+        });
+
+        document.getElementById('save-load-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) this.hideSaveLoad();
+        });
+
+        // Form element event delegation
+        document.getElementById('app').addEventListener('change', (e) => {
+            const el = e.target;
+            if (el.dataset.nfType === 'checkbox') {
+                const varName = el.dataset.targetVar;
+                const value = el.dataset.value;
+                if (value) {
+                    this.state[varName] = el.checked ? value : this._resetVar(varName);
+                } else {
+                    this.state[varName] = !!el.checked;
+                }
+                this._reRender();
+            } else if (el.dataset.nfType === 'radio') {
+                const varName = el.dataset.targetVar;
+                const value = el.value;
+                if (el.checked) {
+                    this.state[varName] = value;
+                    this._reRender();
+                }
+            } else if (el.dataset.nfType === 'dropdown') {
+                this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
+            }
+        });
+
+        document.getElementById('app').addEventListener('input', (e) => {
+            const el = e.target;
+            if ((el.dataset.nfType === 'textfield' || el.dataset.nfType === 'textarea') && el.dataset.commit === 'live') {
+                this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
+            }
+            if (el.dataset.nfType === 'number') {
+                if (el.value === '') return;
+                this.state[el.dataset.targetVar] = el.valueAsNumber;
+                this._reRender();
+            }
+        });
+
+        document.getElementById('app').addEventListener('blur', (e) => {
+            const el = e.target;
+            if ((el.dataset.nfType === 'textfield' || el.dataset.nfType === 'textarea') && el.dataset.commit === 'blur') {
+                this.state[el.dataset.targetVar] = el.value;
+                this._reRender();
+            }
+        }, true);
+
+        document.getElementById('app').addEventListener('keydown', (e) => {
+            const el = e.target;
+            if (el.dataset.nfType === 'textfield' && e.key === 'Enter') {
+                const commit = el.dataset.commit;
+                if (commit === 'onEnterKey' || !commit) {
+                    this.state[el.dataset.targetVar] = el.value;
+                    this._reRender();
+                }
+            }
+        });
+
+        if (this.loadGame()) {
+            this.updateNavButtons();
+            this._ai.init();
+            return;
+        }
+
+        this._ai.init();
+        this.renderSidePanel();
+        if (this.startNode) {
+            this._history = [this.startNode];
+            this._historyIndex = 0;
+            this.render(this.startNode);
+        } else {
+            document.getElementById('passage-content').textContent = 'No story content.';
+        }
+        this.updateNavButtons();
+    },
+
+    navigateTo(slug, choiceIndex) {
+        const node = this.currentNodeId ? this.nodes[this.currentNodeId] : null;
+        const choices = this._activeChoices || (node ? (node.choices || []) : []);
+        let choice;
+        if (!isNaN(choiceIndex)) {
+            choice = choices[choiceIndex];
+        } else {
+            choice = choices.find(c => c.target_node_id === slug);
+        }
+
+        if (choice && choice.prerequisite) {
+            if (!this._evalBool(choice.prerequisite)) return;
+        }
+        if (choice && choice.mutation) {
+            this._evalMutation(choice.mutation, (msg) => this.notify(msg));
+        }
+        if (this.nodes[slug]) this.render(slug);
+        if (this._historyIndex < this._history.length - 1) {
+            this._history = this._history.slice(0, this._historyIndex + 1);
+        }
+        this._historyIndex++;
+        this._history[this._historyIndex] = this.currentNodeId;
+        this.updateNavButtons();
+        this.autoSave();
+    },
+
+    applyActionBlock(idx) {
+        const body = (this._actionBlocks || [])[idx];
+        if (body == null) return;
+        const out = this._processDirectives(body, false);
+        const redirect = this._checkRedirects(out.text);
+        if (redirect === 'back') { this.autoSave(); this.goBack(); return; }
+        if (redirect && this.nodes[redirect]) {
+            this.autoSave();
+            this.render(redirect);
+            return;
+        }
+        const scroller = document.getElementById('main-panel');
+        const prevScrollTop = scroller ? scroller.scrollTop : 0;
+        if (this.currentNodeId) this.render(this.currentNodeId);
+        if (scroller && prevScrollTop > 0) this._restoreScroll(scroller, prevScrollTop);
+        this.autoSave();
+    },
+
+    _restoreScroll(scroller, target) {
+        let tries = 0;
+        const attempt = () => {
+            scroller.scrollTop = target;
+            if (scroller.scrollTop >= target) return;
+            if (tries++ >= 300) return;
+            requestAnimationFrame(attempt);
+        };
+        requestAnimationFrame(attempt);
+    },
+
+    renderSidePanel() {
+        const el = document.getElementById('side-panel-content');
+        if (this.sidePanelNodeId && this.nodes[this.sidePanelNodeId]) {
+            const sideNode = this.nodes[this.sidePanelNodeId];
+            const text = this._preprocessText(sideNode.text || '');
+            const mergedChoices = (sideNode.choices || []).concat(this._includedChoices);
+            el.innerHTML = this.renderContent(text, mergedChoices);
+        } else {
+            el.innerHTML = '';
+        }
+    },
+
+    notify(message, options) {
+        if (typeof message === 'object' && message !== null) {
+            options = message;
+            message = options.message || '';
+        }
+        options = options || {};
+        const type = options.type || 'info';
+        const duration = options.duration || 2500;
+        const delay = options.delay || 0;
+
+        let container = document.getElementById('game-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'game-toast-container';
+            document.getElementById('app').appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        toast.className = 'nf-toast nf-toast-' + type;
+        toast.textContent = message;
+        toast.style.opacity = '0';
+
+        const show = () => {
+            container.appendChild(toast);
+            requestAnimationFrame(() => { toast.style.opacity = '1'; });
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                    if (!container.children.length) container.remove();
+                }, 300);
+            }, duration);
+        };
+
+        if (delay > 0) {
+            setTimeout(show, delay);
+        } else {
+            show();
+        }
+    },
+
+    _notifyDirective(params) {
+        params = params.trim();
+        if (!params) return;
+        const parts = params.split(',').map(s => s.trim());
+        const message = parts.shift();
+        const options = {};
+        for (const p of parts) {
+            const eqI = p.indexOf('=');
+            if (eqI < 0) continue;
+            const key = p.slice(0, eqI).trim().toLowerCase();
+            const val = p.slice(eqI + 1).trim();
+            if (key === 'type') options.type = val;
+            else if (key === 'duration') { const v = parseInt(val, 10); if (!isNaN(v)) options.duration = v; }
+            else if (key === 'delay') { const v = parseInt(val, 10); if (!isNaN(v)) options.delay = v; }
+        }
+        this.notify(message, options);
+    },
+
+    formatKey(key) {
+        return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    },
+
+    autoSave() {
+        if (!this.projectName) return;
+        this._saveToStorage('storyeditor_autosave');
+        try {
+            localStorage.setItem('storyeditor_save', localStorage.getItem('storyeditor_autosave'));
+        } catch {}
+    },
+
+    _saveToStorage(key) {
+        try {
+            const save = {
+                projectName: this.projectName,
+                state: this.state,
+                currentNodeId: this.currentNodeId,
+                _history: this._history,
+                _historyIndex: this._historyIndex,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(key, JSON.stringify(save));
+        } catch (e) {
+            console.warn('Save failed:', e);
+        }
+    },
+
+    _loadFromStorage(key) {
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            const save = JSON.parse(raw);
+            if (save.projectName !== this.projectName) return null;
+            return save;
+        } catch {
+            return null;
+        }
+    },
+
+    loadGame() {
+        let save = this._loadFromStorage('storyeditor_autosave');
+        if (!save) save = this._loadFromStorage('storyeditor_save');
+        if (!save) return false;
+        if (!save.state || !save.currentNodeId) return false;
+        this.state = save.state;
+        this.temp = {};
+        // Merge missing original variables (new vars added since the save was created)
+        for (const [key, defaultVal] of Object.entries(this._originalVars || {})) {
+            if (!(key in this.state)) {
+                this.state[key] = defaultVal;
+            }
+        }
+		if (!this.state._visited) this.state._visited = {};
+		this._ai.hydrateFromState();
+		this._history = save._history || [save.currentNodeId];
+		this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
+		this._liveTimers?.forEach(t => clearInterval(t));
+		this._liveTimers = [];
+		this._audio.stopAll();
+		this.renderSidePanel();
+        this.currentNodeId = save.currentNodeId;
+        if (this.nodes[save.currentNodeId]) {
+            this.render(save.currentNodeId);
+        } else if (this.startNode) {
+            this._history = [this.startNode];
+            this._historyIndex = 0;
+            this.render(this.startNode);
+        } else {
+            return false;
+        }
+        this.notify('Game restored from save.');
+        return true;
+    },
+
+    newGame() {
+        try {
+            const keys = ['storyeditor_save', 'storyeditor_autosave'];
+            for (let i = 1; i <= 5; i++) keys.push('storyeditor_save_' + i);
+		keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+		} catch {}
+		this._liveTimers?.forEach(t => clearInterval(t));
+		this._liveTimers = [];
+		this._audio.stopAll();
+		window.location.reload();
+	},
+
+    showSaveLoad() {
+        this.closeMobilePanel();
+        this.renderSaveSlots();
+        document.getElementById('save-load-overlay').style.display = 'flex';
+    },
+
+    hideSaveLoad() {
+        document.getElementById('save-load-overlay').style.display = 'none';
+    },
+
+    renderSaveSlots() {
+        const container = document.getElementById('save-slots');
+        const slotNames = ['Auto-save', 'Slot 1', 'Slot 2', 'Slot 3', 'Slot 4', 'Slot 5'];
+        const storageKeys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        let html = '';
+        for (let i = 0; i < 6; i++) {
+            const save = this._loadFromStorage(storageKeys[i]);
+            const isOccupied = save !== null;
+            const isAuto = i === 0;
+            const nodeTitle = isOccupied && this.nodes[save.currentNodeId]
+                ? this.nodes[save.currentNodeId].title || save.currentNodeId
+                : null;
+
+            html += '<div class="save-slot">';
+            html += '  <div class="save-slot-info">';
+            html += '    <div class="save-slot-label">' + slotNames[i] + '</div>';
+            if (isOccupied) {
+                html += '    <div class="save-slot-title">' + escHtml(nodeTitle) + '</div>';
+                html += '    <div class="save-slot-time">' + this._formatTime(save.timestamp) + '</div>';
+            } else {
+                html += '    <div class="save-slot-empty">Empty</div>';
+            }
+            html += '  </div>';
+            html += '  <div class="save-slot-actions">';
+            html += '    <button class="save-slot-load" onclick="game.loadFromSlot(' + i + ')">Load</button>';
+            if (isOccupied && !isAuto) {
+                html += '    <button class="save-slot-delete" onclick="game.deleteSlot(' + i + ')">Delete</button>';
+            }
+            if (isAuto) {
+                html += '    <button class="save-slot-save" onclick="game.saveToSlot(' + i + ')">Save</button>';
+            } else {
+                html += '    <button class="save-slot-save" onclick="game.saveToSlot(' + i + ')">' + (isOccupied ? 'Overwrite' : 'Save') + '</button>';
+            }
+            html += '  </div>';
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    },
+
+    _resetVar(varName) {
+        const current = this.state[varName];
+        if (typeof current === 'boolean') return false;
+        if (typeof current === 'number') return 0;
+        return '';
+    },
+
+    _formatTime(ts) {
+        const d = new Date(ts);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+    },
+
+    saveToSlot(index) {
+        if (!this.currentNodeId) { this.notify('No game in progress to save.'); return; }
+        const keys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        this._saveToStorage(keys[index]);
+        if (index === 0) {
+            try { localStorage.setItem('storyeditor_save', localStorage.getItem('storyeditor_autosave')); } catch {}
+        }
+        this.renderSaveSlots();
+        this.notify('Game saved to ' + (index === 0 ? 'Auto-save' : 'Slot ' + index) + '.');
+    },
+
+    loadFromSlot(index) {
+        const keys = ['storyeditor_autosave', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        const save = this._loadFromStorage(keys[index]);
+        if (!save) { this.notify('Slot is empty.'); return; }
+        this.state = save.state;
+        this.temp = {};
+        // Merge missing original variables (new vars added since the save was created)
+        for (const [key, defaultVal] of Object.entries(this._originalVars || {})) {
+            if (!(key in this.state)) {
+                this.state[key] = defaultVal;
+            }
+        }
+        if (!this.state._visited) this.state._visited = {};
+        this._ai.hydrateFromState();
+        this._history = save._history || [save.currentNodeId];
+        this._historyIndex = save._historyIndex !== undefined ? save._historyIndex : 0;
+        this.hideSaveLoad();
+        if (this.nodes[save.currentNodeId]) {
+            this.render(save.currentNodeId);
+        } else if (this.startNode) {
+            this._history = [this.startNode];
+            this._historyIndex = 0;
+            this.render(this.startNode);
+        } else {
+            return;
+        }
+        this.updateNavButtons();
+        this.notify('Game loaded from ' + (index === 0 ? 'Auto-save' : 'Slot ' + index) + '.');
+    },
+
+    deleteSlot(index) {
+        if (index === 0) return;
+        const keys = ['', 'storyeditor_save_1', 'storyeditor_save_2', 'storyeditor_save_3', 'storyeditor_save_4', 'storyeditor_save_5'];
+        try {
+            localStorage.removeItem(keys[index]);
+        } catch {}
+        this.renderSaveSlots();
+        this.notify('Slot ' + index + ' deleted.');
+    },
+
+    goBack() {
+        if (this._historyIndex <= 0) return;
+        this._historyIndex--;
+        const slug = this._history[this._historyIndex];
+        if (this.nodes[slug]) {
+            this.render(slug);
+            if (this.currentNodeId !== slug) {
+                this._history[this._historyIndex] = this.currentNodeId;
+            }
+        }
+        this.updateNavButtons();
+    },
+
+    goForward() {
+        if (this._historyIndex >= this._history.length - 1) return;
+        this._historyIndex++;
+        const slug = this._history[this._historyIndex];
+        if (this.nodes[slug]) {
+            this.render(slug);
+            if (this.currentNodeId !== slug) {
+                this._history[this._historyIndex] = this.currentNodeId;
+            }
+        }
+        this.updateNavButtons();
+    },
+
+    updateNavButtons() {
+        const backBtn = document.getElementById('nav-back');
+        const forwardBtn = document.getElementById('nav-forward');
+        if (backBtn) backBtn.disabled = this._historyIndex <= 0;
+        if (forwardBtn) forwardBtn.disabled = this._historyIndex >= this._history.length - 1;
+        const mBackBtn = document.getElementById('mobile-nav-back');
+        const mForwardBtn = document.getElementById('mobile-nav-forward');
+        if (mBackBtn) mBackBtn.disabled = this._historyIndex <= 0;
+        if (mForwardBtn) mForwardBtn.disabled = this._historyIndex >= this._history.length - 1;
+    },
+
+    toggleMobilePanel() {
+        const panel = document.getElementById('side-panel');
+        const backdrop = document.getElementById('side-panel-backdrop');
+        if (!panel) return;
+        const isOpen = panel.classList.toggle('mobile-open');
+        if (backdrop) backdrop.classList.toggle('mobile-open', isOpen);
+        const btn = document.getElementById('mobile-menu-btn');
+        if (btn) btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    },
+
+    closeMobilePanel() {
+        const panel = document.getElementById('side-panel');
+        const backdrop = document.getElementById('side-panel-backdrop');
+        if (panel) panel.classList.remove('mobile-open');
+        if (backdrop) backdrop.classList.remove('mobile-open');
+        const btn = document.getElementById('mobile-menu-btn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+    },
+
+    processDirectives(text) {
+        this._varValues = [];
+        this._includeCount = 0;
+        this._includeLimitNotified = false;
+        this._includedChoices = [];
+        return this._processDirectives(text, false).text;
+    },
+
+    _processDirectives(text, inLoop) {
+        let out = '';
+        let i = 0;
+        const n = text.length;
+        while (i < n) {
+            if (text[i] !== '{') { out += text[i]; i++; continue; }
+            const rest = text.slice(i);
+            let m;
+            if (this._renderOnly) {
+                if (rest.startsWith('{set:')) {
+                    const sm = this._findSetEnd(text, i);
+                    if (sm) { this._renderOnlyWarn('set'); i = sm.end; continue; }
+                }
+                const um = rest.match(/^\{unset:[^}]*\}/);
+                if (um) { this._renderOnlyWarn('unset'); i += um[0].length; continue; }
+                const rm = rest.match(/^\{redirect:[^}]*\}/);
+                if (rm) { this._renderOnlyWarn('redirect'); i += rm[0].length; continue; }
+                const am = rest.match(/^\{audio:[^}]*\}/i);
+                if (am) { this._renderOnlyWarn('audio'); i += am[0].length; continue; }
+                const nm = rest.match(/^\{notify:[^}]*\}/i);
+                if (nm) { i += nm[0].length; continue; }
+                const im = rest.match(/^\{include:[^}]*\}/i);
+                if (im) { this._renderOnlyWarn('include'); i += im[0].length; continue; }
+                if (rest.startsWith('{fn:') || rest.startsWith('{endfn}')) {
+                    const fe = rest.match(/^\{fn:?\s*[^}]*\}/i);
+                    if (fe) { this._renderOnlyWarn('fn'); i += fe[0].length; continue; }
+                    if (rest.startsWith('{endfn}')) { this._renderOnlyWarn('fn'); i += 7; continue; }
+                }
+                if (rest.startsWith('{return')) {
+                    const rem = this._findDirectiveEnd(text, i, rest.match(/^\{return:?/i)[0].length);
+                    if (rem) { this._renderOnlyWarn('return'); i = rem.end; continue; }
+                }
+                if (rest.startsWith('{call:')) {
+                    const cem = this._findDirectiveEnd(text, i, '{call:'.length);
+                    if (cem) { this._renderOnlyWarn('call'); i = cem.end; continue; }
+                }
+                if (rest.startsWith('{action:')) {
+                    const end = text.indexOf('{endaction}', i);
+                    if (end !== -1) { this._renderOnlyWarn('action'); i = end + 11; continue; }
+                }
+                if (/^\{live:/i.test(rest)) {
+                    const lem = rest.match(/\{endlive\}/i);
+                    const end = lem ? i + lem.index : -1;
+                    if (end !== -1) { this._renderOnlyWarn('live'); i = end + 9; continue; }
+                }
+                if (rest.startsWith('{wait:')) {
+                    const end = text.indexOf('{endwait}', i);
+                    if (end !== -1) { this._renderOnlyWarn('wait'); i = end + 9; continue; }
+                }
+                if (rest.startsWith('{init}')) {
+                    const block = this._findInitEnd(text, i);
+                    if (block) { this._renderOnlyWarn('init'); i = block.end; continue; }
+                }
+                if (rest.startsWith('{for:')) {
+                    const block = this._findForEnd(text, i);
+                    if (block) { this._renderOnlyWarn('for'); i = block.end; continue; }
+                }
+                if (rest.startsWith('{while:')) {
+                    const block = this._findWhileEnd(text, i);
+                    if (block) { this._renderOnlyWarn('while'); i = block.end; continue; }
+                }
+                if (rest.startsWith('{do}')) {
+                    const block = this._findDoWhileEnd(text, i);
+                    if (block) { this._renderOnlyWarn('do'); i = block.end; continue; }
+                }
+                const fm = rest.match(/^\{((?:textfield|checkbox|radiogroup|radiobutton|textarea|number|dropdown|endradiogroup)[^}]*)\}/i);
+                if (fm) { this._renderOnlyWarn('form'); i += fm[0].length; continue; }
+            }
+            if (rest.startsWith('{break}')) {
+                if (inLoop) return { text: out, signal: 'break' };
+                out += '{break}';
+                i += 7;
+                continue;
+            }
+            if (rest.startsWith('{continue}')) {
+                if (inLoop) return { text: out, signal: 'continue' };
+                out += '{continue}';
+                i += 10;
+                continue;
+            }
+            if (rest.startsWith('{action:')) {
+                const am = rest.match(/^\{action:\s*([^}]*)\}/i);
+                if (!am) { out += '{action:'; i += 8; continue; }
+                const closePos = text.indexOf('{endaction}', i + am[0].length);
+                if (closePos === -1) { out += '{action:'; i += 8; continue; }
+                const params = am[1].trim();
+                const body = text.slice(i + am[0].length, closePos);
+                const idx = this._actionBlocks.length;
+                this._actionBlocks.push(body);
+                const parts = params.split(',').map(p => p.trim());
+                const label = parts[0] || 'action';
+                let disabled = false;
+                if (parts[1]) {
+                    disabled = !this._evalBool(parts[1]);
+                }
+                const behavior = (parts[2] || 'disable').toLowerCase();
+                if (disabled && behavior === 'hide') {
+                    i = closePos + 11;
+                    continue;
+                }
+                const linkIdx = this._actionBlockLinks.length;
+                this._actionBlockLinks.push(
+                    '<a href="#" data-action-block="' + idx + '"' + (disabled ? ' class="disabled"' : '') + '>' + label + '</a>'
+                );
+                out += '\u0000nfaction_' + linkIdx + '\u0000';
+                i = closePos + 11;
+                continue;
+            }
+            if (/^\{live:/i.test(rest)) {
+                const lm = rest.match(/^\{live:\s*([^}]*)\}/i);
+                if (!lm) { out += '{live:'; i += 6; continue; }
+                const em = text.slice(i).match(/\{endlive\}/i);
+                const closePos = em ? i + em.index : -1;
+                if (closePos === -1) { out += '{live:'; i += 6; continue; }
+                const interval = parseInt(lm[1].trim(), 10);
+                if (isNaN(interval)) { out += text.slice(i, closePos + 9); i = closePos + 9; continue; }
+                const id = this._liveRegions.length;
+                this._liveRegions.push({ id, interval: Math.max(50, interval), body: text.slice(i + lm[0].length, closePos) });
+                out += '\u0000nflive_' + id + '\u0000';
+                i = closePos + 9;
+                continue;
+            }
+            if (rest.startsWith('{set:')) {
+                const sm = this._findSetEnd(text, i);
+                if (sm) {
+                    this._evalMutation(sm.expr, (msg) => this.notify(msg));
+                    i = sm.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{return')) {
+                const pm = this._findDirectiveEnd(text, i, rest.match(/^\{return:?/i)[0].length);
+                if (pm) { this._fnReturn = this._evalValue(pm.expr); i = pm.end; return { text: out, signal: 'fnreturn' }; }
+            }
+            if (rest.startsWith('{call:')) {
+                const cm = this._findDirectiveEnd(text, i, '{call:'.length);
+                if (cm) {
+                    const parts = this._splitArgs(cm.expr);
+                    const name = (parts[0] || '').trim();
+                    const args = parts.slice(1).map(a => this._evalValue(a.trim()));
+                    const val = this._callFunction(name, args);
+                    if (!(val === undefined || (val !== null && typeof val === 'object' && !Array.isArray(val)))) {
+                        const idx = this._varValues.length;
+                        this._varValues.push(Array.isArray(val) ? val.join(', ') : String(val));
+                        out += '\u0000nfvar_' + idx + '\u0000';
+                    }
+                    i = cm.end;
+                    continue;
+                }
+            }
+            if ((m = rest.match(/^\{unset:\s*((?:state|temp)\.\w+|temp)\}/))) {
+                const target = m[1].trim();
+                if (target === 'temp') {
+                    this.temp = {};
+                } else if (target.startsWith('state.')) {
+                    delete this.state[target.slice(6)];
+                } else {
+                    delete this.temp[target.slice(5)];
+                }
+                i += m[0].length;
+                continue;
+            }
+            if ((m = rest.match(/^\{include:\s*([^}]+)\}/i))) {
+                const slug = m[1].trim();
+                const target = this.nodes[slug];
+                i += m[0].length;
+                if (!target) { out += m[0]; continue; }
+                if (this._includeCount >= 100) {
+                    if (!this._includeLimitNotified) { this.notify('Include limit exceeded.'); this._includeLimitNotified = true; }
+                    continue;
+                }
+                this._includeCount++;
+                if (!this._inInit && !this._inFn) {
+                    this._includedChoices.push(...(target.choices || []));
+                }
+                const r = this._processDirectives(target.text || '', inLoop);
+                out += r.text;
+                if (r.signal) return { text: out, signal: r.signal };
+                continue;
+            }
+            if (rest.startsWith('{print')) {
+                const open = rest.match(/^\{print:?/i);
+                if (open) {
+                    const pm = this._findDirectiveEnd(text, i, open[0].length);
+                    if (pm) {
+                        const val = this._evalValue(pm.expr);
+                        if (val === undefined || (val !== null && typeof val === 'object' && !Array.isArray(val))) {
+                            out += text.slice(i, pm.end);
+                        } else {
+                            const idx = this._varValues.length;
+                            this._varValues.push(Array.isArray(val) ? val.join(', ') : String(val));
+                            out += '\u0000nfvar_' + idx + '\u0000';
+                        }
+                        i = pm.end;
+                        continue;
+                    }
+                }
+            }
+            if (rest.startsWith('{for:')) {
+                const block = this._findForEnd(text, i);
+                if (block) {
+                    out += this._runFor(block.init, block.condition, block.update, block.body);
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{while:')) {
+                const block = this._findWhileEnd(text, i);
+                if (block) {
+                    out += this._runWhile(block.body, block.condition);
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{do}')) {
+                const block = this._findDoWhileEnd(text, i);
+                if (block) {
+                    out += this._runDoWhile(block.body, block.condition);
+                    i = block.end;
+                    continue;
+                }
+            }
+            if (rest.startsWith('{init}')) {
+                const block = this._findInitEnd(text, i);
+                if (block) {
+                    if (this._freshEntry && !inLoop && !this._inInit) {
+                        this._inInit = true;
+                        try { this._processDirectives(block.body, false); } finally { this._inInit = false; }
+                    }
+                    i = block.end;
+                    continue;
+                }
+			}
+ 			if ((m = rest.match(/^\{audio:([^}]+)\}/i))) {
+ 				if (this._bootSetup) { i += m[0].length; continue; }
+ 				this._audio.directive(m[1]);
+ 				i += m[0].length;
+ 				continue;
+ 			}
+ 			if ((m = rest.match(/^\{notify:([^}]+)\}/i))) {
+ 				this._notifyDirective(m[1]);
+ 				i += m[0].length;
+ 				continue;
+ 			}
+			if (rest.startsWith('{if:')) {
+				const parsed = this._parseIfBranches(text, i);
+				if (parsed) {
+					const selected = this._selectIfBranch(parsed, text);
+					if (selected !== null) {
+						const r = this._processDirectives(selected, inLoop);
+						out += r.text;
+						if (r.signal) return { text: out, signal: r.signal };
+					}
+					i = parsed.endIndex;
+					continue;
+				}
+			}
+			out += text[i];
+			i++;
+		}
+        return { text: out, signal: null };
+    },
+
+    _selectIfBranch(parsed, text) {
+        const endifPos = parsed.endIndex - 7;
+        let selected = null;
+        for (let b = 0; b < parsed.branches.length; b++) {
+            const branch = parsed.branches[b];
+            if (branch.type === 'endif') break;
+            let match = false;
+            if (branch.type === 'else') {
+                match = true;
+            } else {
+                match = this._evalBool(branch.condition);
+            }
+            if (match) {
+                const nextTagStart = (b + 1 < parsed.branches.length) ? parsed.branches[b + 1].tagStart : endifPos;
+                selected = text.slice(branch.tagEnd, nextTagStart);
+                break;
+            }
+        }
+        return selected;
+    },
+
+    _parseIfBranches(text, i) {
+        const rest = text.slice(i);
+        const m = rest.match(/^\{if:\s*([^}]*)\}/);
+        if (!m) return null;
+        let branches = [];
+        branches.push({ type: 'if', condition: m[1].trim(), tagEnd: i + m[0].length });
+        let depth = 1;
+        let j = i + m[0].length;
+        let endifPos = -1;
+        const n = text.length;
+        while (j < n && depth > 0) {
+            if (text[j] === '{') {
+                if (text.slice(j, j + 4) === '{if:') { depth++; j += 4; continue; }
+                else if (text.slice(j, j + 7) === '{endif}') {
+                    depth--;
+                    if (depth === 0) { endifPos = j; branches.push({ type: 'endif', tagStart: j }); }
+                    j += 7;
+                    continue;
+                }
+                else if (depth === 1) {
+                    if (text.slice(j, j + 8) === '{elseif:') {
+                        let eStart = j + 8;
+                        if (text[eStart] === ' ') eStart++;
+                        const eEnd = text.indexOf('}', eStart);
+                        if (eEnd !== -1) {
+                            branches.push({ type: 'elseif', condition: text.slice(eStart, eEnd).trim(), tagStart: j, tagEnd: eEnd + 1 });
+                            j = eEnd + 1;
+                            continue;
+                        }
+                    }
+                    else if (text.slice(j, j + 6) === '{else}') {
+                        branches.push({ type: 'else', tagStart: j, tagEnd: j + 6 });
+                        j += 6;
+                        continue;
+                    }
+                }
+            }
+            j++;
+        }
+        if (endifPos === -1) return null;
+        return { branches, endIndex: endifPos + 7 };
+    },
+
+    _runWhile(body, condition) {
+        let out = '';
+        let guard = 0;
+        while (this._evalBool(condition)) {
+            if (++guard > 1000) { this.notify('Loop limit exceeded.'); break; }
+            const r = this._processDirectives(body, true);
+            out += r.text;
+            if (r.signal === 'break') return out;
+            if (r.signal === 'continue') continue;
+            if (r.signal === 'fnreturn') return r.text;
+        }
+        return out;
+    },
+
+    _runDoWhile(body, condition) {
+        let out = '';
+        let guard = 0;
+        do {
+            if (++guard > 1000) { this.notify('Loop limit exceeded.'); break; }
+            const r = this._processDirectives(body, true);
+            out += r.text;
+            if (r.signal === 'break') return out;
+            if (r.signal === 'continue') continue;
+            if (r.signal === 'fnreturn') return r.text;
+        } while (this._evalBool(condition));
+        return out;
+    },
+
+    _runFor(init, condition, update, body) {
+        let out = '';
+        let guard = 0;
+        this._evalMutation(init, (msg) => this.notify(msg));
+        while (this._evalBool(condition)) {
+            if (++guard > 1000) { this.notify('Loop limit exceeded.'); break; }
+            const r = this._processDirectives(body, true);
+            out += r.text;
+            if (r.signal === 'break') return out;
+            this._evalMutation(update, (msg) => this.notify(msg));
+            if (r.signal === 'continue') continue;
+            if (r.signal === 'fnreturn') return r.text;
+        }
+        return out;
+    },
+
+    _findWhileEnd(text, i) {
+        const m = text.slice(i).match(/^\{while:\s*([^}]+)\}/);
+        if (!m) return null;
+        const condition = m[1].trim();
+        const bodyStart = i + m[0].length;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{do}')) {
+                const nb = this._findDoWhileEnd(text, j);
+                if (!nb) return null;
+                j = nb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{endwhile}')) {
+                if (depth === 0) {
+                    return { body: text.slice(bodyStart, j), condition, end: j + 10 };
+                }
+                depth--;
+                j += 10;
+                continue;
+            }
+            if (text.slice(j).startsWith('{while:')) {
+                const tm = text.slice(j).match(/^\{while:[^}]*\}/);
+                if (!tm) { j++; continue; }
+                depth++;
+                j += tm[0].length;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _findDoWhileEnd(text, i) {
+        const bodyStart = i + 4;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{do}')) {
+                const nb = this._findDoWhileEnd(text, j);
+                if (!nb) return null;
+                j = nb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{for:')) {
+                const fb = this._findForEnd(text, j);
+                if (!fb) { j++; continue; }
+                j = fb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{endwhile}')) {
+                if (depth === 0) return null;
+                depth--;
+                j += 10;
+                continue;
+            }
+            if (text.slice(j).startsWith('{while:')) {
+                const tm = text.slice(j).match(/^\{while:[^}]*\}/);
+                if (!tm) { j++; continue; }
+                if (depth === 0) {
+                    const condition = tm[0].slice(7, -1).trim();
+                    return { body: text.slice(bodyStart, j), condition, end: j + tm[0].length };
+                }
+                depth++;
+                j += tm[0].length;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _findInitEnd(text, i) {
+        if (text.slice(i, i + 6) !== '{init}') return null;
+        const bodyStart = i + 6;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{init}')) { depth++; j += 6; continue; }
+            if (text.slice(j).startsWith('{endinit}')) {
+                if (depth === 0) return { body: text.slice(bodyStart, j), end: j + 9 };
+                depth--;
+                j += 9;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _findForEnd(text, i) {
+        const m = text.slice(i).match(/^\{for:\s*([^}]+)\}/);
+        if (!m) return null;
+        const parts = m[1].split(';').map(s => s.trim());
+        if (parts.length < 3) return null;
+        const bodyStart = i + m[0].length;
+        let j = bodyStart;
+        let depth = 0;
+        const n = text.length;
+        while (j < n) {
+            if (text.slice(j).startsWith('{do}')) {
+                const nb = this._findDoWhileEnd(text, j);
+                if (!nb) return null;
+                j = nb.end;
+                continue;
+            }
+            if (text.slice(j).startsWith('{for:')) {
+                const tm = text.slice(j).match(/^\{for:[^}]*\}/);
+                if (!tm) { j++; continue; }
+                depth++;
+                j += tm[0].length;
+                continue;
+            }
+            if (text.slice(j).startsWith('{endfor}')) {
+                if (depth === 0) return { body: text.slice(bodyStart, j), init: parts[0], condition: parts[1], update: parts[2], end: j + 8 };
+                depth--;
+                j += 8;
+                continue;
+            }
+            j++;
+        }
+        return null;
+    },
+
+    _installHelpers() {
+        if (this._helpersInstalled) return;
+        this._helpersInstalled = true;
+
+        const _game = this;
+        this.helper = Object.freeze({
+            random(min, max) {
+                if (arguments.length === 0) throw new TypeError('helper.random() requires at least 1 argument');
+                if (arguments.length === 1) { min = 0; max = Math.trunc(arguments[0]); }
+                else { min = Math.trunc(arguments[0]); max = Math.trunc(arguments[1]); }
+                if (!Number.isInteger(min) || !Number.isInteger(max)) throw new TypeError('helper.random() arguments must be numeric');
+                return min + Math.floor(Math.random() * (max - min + 1));
+            },
+            either(...values) {
+                if (values.length === 0) return undefined;
+                const flat = Array.prototype.concat.apply([], values);
+                return flat[Math.floor(Math.random() * flat.length)];
+            },
+            clone(value) {
+                if (typeof value !== 'object' || value === null) return value;
+                if (typeof value.clone === 'function') return value.clone(true);
+                const tag = Object.prototype.toString.call(value);
+                let copy;
+                if (tag === '[object Array]') copy = new Array(value.length);
+                else if (tag === '[object Date]') copy = new Date(value.getTime());
+                else if (tag === '[object Map]') {
+                    copy = new Map();
+                    value.forEach((v, k) => copy.set(this.clone(k), this.clone(v)));
+                    return copy;
+                }
+                else if (tag === '[object RegExp]') copy = new RegExp(value.source, value.flags);
+                else if (tag === '[object Set]') {
+                    copy = new Set();
+                    value.forEach(v => copy.add(this.clone(v)));
+                    return copy;
+                }
+                else {
+                    if (tag !== '[object Object]') {
+                        throw new TypeError('helper.clone() cannot clone type: ' + tag);
+                    }
+                    copy = Object.create(Object.getPrototypeOf(value));
+                }
+                Object.keys(value).forEach(k => { copy[k] = this.clone(value[k]); });
+                return copy;
+            },
+            clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); },
+            fn_exists(name) {
+                const key = String(name);
+                const fns = _game._functions;
+                if (fns[key] !== undefined) return true;
+                const lower = key.toLowerCase();
+                return Object.keys(fns).some(k => k.toLowerCase() === lower);
+            },
+            hasMacro(name) {
+                return this.fn_exists(name);
+            },
+            hasPassage(slug) {
+                return _game.nodes[String(slug)] !== undefined;
+            }
+        });
+
+        const guard = name => { throw new TypeError(name + ' called on null or undefined'); };
+        const def = (proto, name, fn) => {
+            if (proto[name] === undefined) Object.defineProperty(proto, name, { value: fn, configurable: true, writable: true });
+        };
+        // Array methods…
+        def(Array.prototype, 'first', function() { if (this == null) return guard('Array.prototype.first'); if (this.length >>> 0) return this[0]; });
+        def(Array.prototype, 'last', function() { if (this == null) return guard('Array.prototype.last'); const l = this.length >>> 0; if (l) return this[l - 1]; });
+        def(Array.prototype, 'count', function(needle, pos) { if (this == null) return guard('Array.prototype.count'); pos = Number(pos) || 0; let c = 0; while ((pos = this.indexOf(needle, pos)) !== -1) { c++; pos++; } return c; });
+        def(Array.prototype, 'countWith', function(pred, thisArg) { if (this == null) return guard('Array.prototype.countWith'); if (typeof pred !== 'function') throw new Error('Array.prototype.countWith predicate must be a function'); let c = 0; for (let i = 0; i < this.length; i++) if (pred.call(thisArg, this[i], i, this)) c++; return c; });
+        def(Array.prototype, 'contains', function(v) { if (this == null) return guard('Array.prototype.contains'); return this.indexOf(v) !== -1; });
+        def(Array.prototype, 'concatUnique', function() { if (this == null) return guard('Array.prototype.concatUnique'); const result = Array.from(this); const items = Array.prototype.reduce.call(arguments, (p, c) => p.concat(c), []); for (const v of items) if (result.indexOf(v) === -1) result.push(v); return result; });
+        def(Array.prototype, 'toUnique', function() { if (this == null) return guard('Array.prototype.toUnique'); return Array.from(new Set(this)); });
+        def(Array.prototype, 'toShuffled', function() { if (this == null) return guard('Array.prototype.toShuffled'); return Array.from(this).shuffle(); });
+        def(Array.prototype, 'random', function() { if (this == null) return guard('Array.prototype.random'); const l = this.length >>> 0; if (!l) return undefined; if (arguments.length === 0) return this[Math.floor(Math.random() * l)]; const idx = Array.from(arguments).map(i => i < 0 ? Math.max(0, l + i) : i); return this[idx[Math.floor(Math.random() * idx.length)]]; });
+        def(Array.prototype, 'randomMany', function(wantSize) { if (this == null) return guard('Array.prototype.randomMany'); const l = this.length >>> 0; if (!l) return []; const want = Math.trunc(wantSize); if (!Number.isInteger(want)) throw new Error('Array.prototype.randomMany want must be an integer'); if (want < 1) return []; const n = Math.min(want, l); const picked = new Set(), result = []; while (picked.size < n) { const i = Math.floor(Math.random() * l); if (!picked.has(i)) { picked.add(i); result.push(this[i]); } } return result; });
+        def(Array.prototype, 'includesAll', function() { if (this == null) return guard('Array.prototype.includesAll'); const args = arguments.length === 1 && Array.isArray(arguments[0]) ? arguments[0] : arguments; return Array.prototype.every.call(args, v => this.includes(v)); });
+        def(Array.prototype, 'includesAny', function() { if (this == null) return guard('Array.prototype.includesAny'); const args = arguments.length === 1 && Array.isArray(arguments[0]) ? arguments[0] : arguments; return Array.prototype.some.call(args, v => this.includes(v)); });
+        def(Array.prototype, 'append', function() { if (this == null) return guard('Array.prototype.append'); const items = Array.prototype.concat.apply([], arguments); for (const v of items) this.push(v); return this; });
+        def(Array.prototype, 'prepend', function() { if (this == null) return guard('Array.prototype.prepend'); const items = Array.prototype.concat.apply([], arguments); for (let i = items.length - 1; i >= 0; i--) this.unshift(items[i]); return this; });
+        def(Array.prototype, 'delete', function() { if (this == null) return guard('Array.prototype.delete'); console.warn('[DEPRECATED] <Array>.delete() is deprecated.'); return this.deleteAll.apply(this, arguments); });
+        def(Array.prototype, 'deleteAll', function() { if (this == null) return guard('Array.prototype.deleteAll'); if (!arguments.length) return []; const needles = Array.prototype.concat.apply([], arguments); const removed = []; for (let i = this.length - 1; i >= 0; i--) { for (const needle of needles) { if (this[i] === needle || (this[i] !== this[i] && needle !== needle)) { removed.unshift(this[i]); this.splice(i, 1); break; } } } return removed; });
+        def(Array.prototype, 'deleteAt', function() { if (this == null) return guard('Array.prototype.deleteAt'); const l = this.length >>> 0; const indices = Array.from(new Set(Array.from(arguments).map(i => i < 0 ? Math.max(0, l + i) : i))).sort((a, b) => b - a); const removed = []; for (const i of indices) { if (i >= 0 && i < this.length) removed.unshift(this.splice(i, 1)[0]); } return removed; });
+        def(Array.prototype, 'deleteFirst', function() { if (this == null) return guard('Array.prototype.deleteFirst'); if (!arguments.length) return []; const needles = Array.prototype.concat.apply([], arguments), removed = []; for (let i = 0; i < this.length && needles.length; i++) for (let j = 0; j < needles.length; j++) if (this[i] === needles[j] || (this[i] !== this[i] && needles[j] !== needles[j])) { removed.push(this.splice(i--, 1)[0]); needles.splice(j--, 1); break; } return removed; });
+        def(Array.prototype, 'deleteLast', function() { if (this == null) return guard('Array.prototype.deleteLast'); if (!arguments.length) return []; const needles = Array.prototype.concat.apply([], arguments), removed = []; for (let i = this.length - 1; i >= 0 && needles.length; i--) for (let j = 0; j < needles.length; j++) if (this[i] === needles[j] || (this[i] !== this[i] && needles[j] !== needles[j])) { removed.push(this.splice(i, 1)[0]); needles.splice(j--, 1); break; } return removed; });
+        def(Array.prototype, 'deleteWith', function(pred, thisArg) { if (this == null) return guard('Array.prototype.deleteWith'); if (typeof pred !== 'function') throw new Error('Array.prototype.deleteWith predicate must be a function'); const removed = []; for (let i = this.length - 1; i >= 0; i--) if (pred.call(thisArg, this[i], i, this)) removed.unshift(this.splice(i, 1)[0]); return removed; });
+        def(Array.prototype, 'pluck', function() { if (this == null) return guard('Array.prototype.pluck'); const l = this.length >>> 0; if (!l) return undefined; let index; if (arguments.length === 0) index = Math.floor(Math.random() * l); else { const candidates = Array.from(arguments).map(i => i < 0 ? Math.max(0, l + i) : i); index = candidates[Math.floor(Math.random() * candidates.length)]; } return this.splice(index, 1)[0]; });
+        def(Array.prototype, 'pluckMany', function(wantSize) { if (this == null) return guard('Array.prototype.pluckMany'); const l = this.length >>> 0; if (!l) return []; const want = Math.trunc(wantSize); if (!Number.isInteger(want)) throw new Error('Array.prototype.pluckMany want must be an integer'); if (want < 1) return []; const n = Math.min(want, l), picked = new Set(), result = []; while (picked.size < n) picked.add(Math.floor(Math.random() * l)); const indices = Array.from(picked).sort((a, b) => b - a); for (const i of indices) result.push(this.splice(i, 1)[0]); return result; });
+        def(Array.prototype, 'pushUnique', function() { if (this == null) return guard('Array.prototype.pushUnique'); for (const v of arguments) if (this.indexOf(v) === -1) this.push(v); return this.length; });
+        def(Array.prototype, 'unshiftUnique', function() { if (this == null) return guard('Array.prototype.unshiftUnique'); const add = Array.from(arguments); for (let i = add.length - 1; i >= 0; i--) if (this.indexOf(add[i]) === -1) this.unshift(add[i]); return this.length; });
+        def(Array.prototype, 'shuffle', function() { if (this == null) return guard('Array.prototype.shuffle'); for (let i = this.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); if (i !== j) { const tmp = this[i]; this[i] = this[j]; this[j] = tmp; } } return this; });
+        // String methods…
+        def(String.prototype, 'toUpperFirst', function() { if (this == null) return guard('String.prototype.toUpperFirst'); const s = String(this); return s.length ? s[0].toUpperCase() + s.slice(1) : s; });
+        def(String.prototype, 'toLocaleUpperFirst', function() { if (this == null) return guard('String.prototype.toLocaleUpperFirst'); const s = String(this); return s.length ? s[0].toLocaleUpperCase() + s.slice(1) : s; });
+        def(String.prototype, 'first', function() { if (this == null) return guard('String.prototype.first'); const s = String(this); return s.length ? s[0] : undefined; });
+        def(String.prototype, 'last', function() { if (this == null) return guard('String.prototype.last'); const s = String(this); return s.length ? s[s.length - 1] : undefined; });
+        def(String.prototype, 'count', function(needle, pos) { if (this == null) return guard('String.prototype.count'); needle = String(needle || ''); if (needle === '') return 0; pos = Number(pos) || 0; let c = 0; while ((pos = this.indexOf(needle, pos)) !== -1) { c++; pos += needle.length; } return c; });
+        def(String.prototype, 'contains', function(needle, pos) { if (this == null) return guard('String.prototype.contains'); return this.indexOf(String(needle), Number(pos) || 0) !== -1; });
+        def(String.prototype, 'splice', function(startAt, delCount, replacement) { if (this == null) return guard('String.prototype.splice'); const s = String(this); let start = Number(startAt); if (Number.isSafeInteger(start)) { if (start < 0) { start += s.length; if (start < 0) start = 0; } } else start = 0; if (start > s.length) start = s.length; const count = Number(delCount); const cnt = (Number.isSafeInteger(count) && count >= 0) ? count : 0; let res = s.slice(0, start); if (replacement !== undefined) res += replacement; if (start + cnt < s.length) res += s.slice(start + cnt); return res; });
+        def(String.prototype, 'splitOrEmpty', function() { if (this == null) return guard('String.prototype.splitOrEmpty'); return String(this) === '' ? [] : String.prototype.split.apply(this, arguments); });
+    },
+
+    _freezeSetup(obj) {
+        for (const v of Object.values(obj)) {
+            if (v && typeof v === 'object') this._freezeSetup(v);
+        }
+        Object.freeze(obj);
+        return new Proxy(obj, {
+            set() { throw new TypeError('setup is read-only after game start'); },
+            deleteProperty() { throw new TypeError('setup is read-only after game start'); },
+            defineProperty() { throw new TypeError('setup is read-only after game start'); },
+            setPrototypeOf() { throw new TypeError('setup is read-only after game start'); }
+        });
+    },
+
+    _findDirectiveEnd(text, i, openLen) {
+        let j = i + openLen;
+        let depth = 0, quote = null;
+        for (; j < text.length; j++) {
+            const ch = text[j];
+            if (quote) {
+                if (ch === '\\') { j++; continue; }
+                if (ch === quote) quote = null;
+                continue;
+            }
+            if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+            if (ch === '{') depth++;
+            else if (ch === '}') {
+                if (depth === 0) return { expr: text.slice(i + openLen, j).trim(), end: j + 1 };
+                depth--;
+            }
+        }
+        return null;
+    },
+
+    _findSetEnd(text, i) {
+        return this._findDirectiveEnd(text, i, 5);
+    },
+
+    _registerFnCatalogue(text) {
+        const headerRe = /\{fn:?\s*([A-Za-z_][\w$]*)((?:,\s*[A-Za-z_][\w$]*)*)\}/i;
+        let from = 0, guard = 0;
+        while (guard++ < 500) {
+            const hm = text.slice(from).match(headerRe);
+            if (!hm) break;
+            const headerAbs = from + hm.index;
+            const headerEnd = headerAbs + hm[0].length;
+            const endTag = text.indexOf('{endfn}', headerEnd);
+            if (endTag === -1) break;
+            const name = hm[1];
+            const params = hm[2] ? hm[2].trim().split(/\s*,\s*/).filter(Boolean) : [];
+            const body = text.slice(headerEnd, endTag);
+            if (this._functions[name]) console.warn('Function redefined, last wins: ' + name);
+            this._functions[name] = { params, body };
+            from = endTag + 7;
+        }
+    },
+
+    _splitArgs(s) {
+        const parts = []; let cur = '', depth = 0, quote = null;
+        for (let i = 0; i < s.length; i++) {
+            const c = s[i];
+            if (quote) { cur += c;
+                if (c === '\\') { i++; if (i < s.length) cur += s[i]; continue; }
+                if (c === quote) quote = null;
+                continue; }
+            if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue; }
+            if (c === '{' || c === '(' || c === '[') depth++;
+            else if (c === '}' || c === ')' || c === ']') depth--;
+            if (c === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; continue; }
+            cur += c;
+        }
+        if (cur.trim() !== '') parts.push(cur.trim());
+        return parts;
+    },
+
+    _callFunction(name, args) {
+        if (this._fnDepth >= 50) { this.notify('Function recursion limit exceeded.'); return undefined; }
+        const fn = this._functions[name];
+        if (!fn) { console.warn('Unknown function: ' + name); return undefined; }
+        this._fnDepth++; this._inFn = true;
+        const savedTemp = this.temp, savedFnReturn = this._fnReturn;
+        this.temp = {};
+        for (let p = 0; p < fn.params.length; p++) this.temp[fn.params[p]] = args[p];
+        this._fnReturn = undefined;
+        let ret = undefined;
+        try {
+            const result = this._processDirectives(fn.body, false);
+            const text = result.text.replace(/\}\n/g, '}').trim();
+            ret = this._fnReturn !== undefined ? this._fnReturn : text;
+        } finally {
+            this.temp = savedTemp;
+            this._fnReturn = savedFnReturn;
+            this._inFn = false;
+            this._fnDepth--;
+        }
+        return ret;
+    },
+
+    _norm(expr) {
+        return (expr || '').replace(/((?:state|temp|setup)\.\w+)\.size\b/g, '$1.length');
+    },
+
+    _evalBool(expr) {
+        try {
+            return !!new Function('state', 'setup', 'helper', 'temp', 'call', 'try { return ' + this._norm(expr) + '; } catch(e) { return false; }')(this.state, this.setup, this.helper, this.temp, (...r) => this._callFunction(r[0], r.slice(1)));
+        } catch { return false; }
+    },
+
+    _evalMutation(expr, notify) {
+        try { new Function('state', 'setup', 'helper', 'notify', 'temp', 'call', this._norm(expr))(this.state, this.setup, this.helper, notify, this.temp, (...r) => this._callFunction(r[0], r.slice(1))); }
+        catch (e) { console.warn('Mutation failed:', e); }
+    },
+
+    _evalValue(expr) {
+        try { return new Function('state', 'setup', 'helper', 'temp', 'call', 'return ' + this._norm(expr))(this.state, this.setup, this.helper, this.temp, (...r) => this._callFunction(r[0], r.slice(1))); }
+        catch { return undefined; }
+    },
+
+    _preprocessText(text) {
+        text = this.processDirectives(text);
+        text = text.replace(/\{redirect:([^}]+)\}/g, '');
+        return text;
+    },
+
+    _reRender() {
+        if (!this.currentNodeId) return;
+        const active = document.activeElement;
+        const activeId = active ? active.id : null;
+        const selStart = active && active.selectionStart !== undefined ? active.selectionStart : null;
+        const selEnd = active && active.selectionEnd !== undefined ? active.selectionEnd : null;
+        this.render(this.currentNodeId);
+        if (activeId) {
+            const restored = document.getElementById(activeId);
+            if (restored) {
+                restored.focus();
+                if (selStart !== null && selEnd !== null) {
+                    restored.selectionStart = selStart;
+                    restored.selectionEnd = selEnd;
+                }
+            }
+        }
+    },
+
+    render(nodeId) {
+        // Navigating to another passage closes the mobile HUD drawer so the new
+        // passage is visible; in-place re-renders (HUD actions, form inputs)
+        // keep it open.
+        if (nodeId !== this.currentNodeId) this.closeMobilePanel();
+        this._formCounters = { textfield: 0, checkbox: 0, radiogroup: 0, dropdown: 0, textarea: 0, number: 0 };
+        this._actionBlocks = [];
+        this._actionBlockLinks = [];
+        this._liveRegions = [];
+        const node = this.nodes[nodeId];
+        if (!node) return;
+        this._waitTimeouts?.forEach(t => clearTimeout(t));
+        this._waitTimeouts = [];
+        this._liveTimers?.forEach(t => clearInterval(t));
+        this._liveTimers = [];
+        this._tailElements = null;
+
+        this._freshEntry = nodeId !== this.currentNodeId || this.currentNodeId == null;
+        if (this._freshEntry) this.temp = {};
+        this.state._previous = this._history[this._historyIndex - 1] || null;
+        const resolved = this.processDirectives(node.text || '');
+        const redirectSlug = this._checkRedirects(resolved);
+        if (redirectSlug) {
+            if (redirectSlug === 'back') { this.goBack(); return; }
+            this.render(redirectSlug);
+            return;
+        }
+
+        if (node.on_enter && node.on_enter.target_node_id) {
+            let shouldRedirect = true;
+            if (node.on_enter.condition) {
+                shouldRedirect = this._evalBool(node.on_enter.condition);
+            }
+            if (shouldRedirect && this.nodes[node.on_enter.target_node_id]) {
+                if (node.on_enter.mutation) {
+                    this._evalMutation(node.on_enter.mutation);
+                }
+                this.render(node.on_enter.target_node_id);
+                return;
+            }
+        }
+
+        this.state._visited[nodeId] = true;
+        this.currentNodeId = nodeId;
+        let text = resolved.replace(/\{redirect:([^}]+)\}/g, '');
+        const mergedChoices = (node.choices || []).concat(this._includedChoices);
+        this._activeChoices = mergedChoices;
+		document.getElementById('passage-content').innerHTML = this.renderContent(text, mergedChoices);
+		this.renderSidePanel();
+		this._audio.stopUndeclared();
+		this.runWaitSequences();
+		this.refreshLiveRegions();
+		if (node._aiPlaceholder) {
+			this._ai.prioritize(nodeId);
+		} else {
+			this._ai.onEnterNode(nodeId);
+		}
+    },
+
+    // Inline size style for {img:} / {video:}. Media never exceeds its
+    // container; with both w and h the box keeps the w:h aspect ratio while it
+    // shrinks on narrow (phone) screens instead of being squashed, and with
+    // only h the picture is letterboxed rather than distorted.
+    // The in-app preview sets window.NF_ASSET_CORS: its assets are served by
+    // the app's nfasset:// scheme, which WebKit only lets an http:// page
+    // (e.g. the `tauri dev` server) display when requested in CORS mode (the
+    // scheme answers with Access-Control-Allow-Origin: *). Exported games
+    // never set the flag, so their markup is unchanged.
+    _assetCorsAttr() {
+        return window.NF_ASSET_CORS ? ' crossorigin="anonymous"' : '';
+    },
+
+    _mediaSizeStyle(o) {
+        const w = parseFloat(o.w), h = parseFloat(o.h);
+        if (w > 0 && h > 0) return 'max-width:100%;width:' + w + 'px;height:auto;aspect-ratio:' + w + ' / ' + h + ';object-fit:contain';
+        if (w > 0) return 'max-width:100%;width:' + w + 'px;height:auto';
+        if (h > 0) return 'max-width:100%;height:' + h + 'px;object-fit:contain';
+        return 'max-width:100%;height:auto';
+    },
+
+    _parseMediaOptions(params) {
+        const out = { target: '', w: '', h: '', alt: '', autoplay: true, repeat: true, mute: false };
+        const parts = params.split(',');
+        out.target = (parts.shift() || '').trim();
+        parts.forEach(p => {
+            const eqI = p.indexOf('=');
+            const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+            const rawVal = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+            if (key === 'w' && /^\d/.test(rawVal)) out.w = parseInt(rawVal, 10);
+            else if (key === 'h' && /^\d/.test(rawVal)) out.h = parseInt(rawVal, 10);
+            else if (key === 'alt') {
+                if (rawVal !== '' && !rawVal.includes(',') && !rawVal.includes('}') && !rawVal.includes('"')) out.alt = rawVal;
+            }
+            else if (key === 'autoplay') out.autoplay = rawVal === '' || rawVal.toLowerCase() !== 'false';
+            else if (key === 'repeat') out.repeat = rawVal === '' || rawVal.toLowerCase() !== 'false';
+            else if (key === 'mute') out.mute = rawVal === '' || rawVal.toLowerCase() !== 'false';
+        });
+        return out;
+    },
+
+    _parseTableOptions(params, kind) {
+        const out = { w: '', align: '', valign: '', colspan: '', rowspan: '', center: false, border: false,
+                      cellpadding: '', cellspacing: '', cls: '' };
+        params.split(',').forEach(p => {
+            p = p.trim();
+            if (!p) return;
+            const eqI = p.indexOf('=');
+            const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+            const rawVal = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+            if (key === 'w' && /^\d+$/.test(rawVal)) out.w = parseInt(rawVal, 10);
+            else if (key === 'align' && rawVal) out.align = rawVal;
+            else if (key === 'valign' && rawVal) out.valign = rawVal;
+            else if (key === 'colspan' && /^\d+$/.test(rawVal)) out.colspan = parseInt(rawVal, 10);
+            else if (key === 'rowspan' && /^\d+$/.test(rawVal)) out.rowspan = parseInt(rawVal, 10);
+            else if (key === 'center' && kind === 'table') out.center = true;
+            else if (key === 'border' && kind === 'table') out.border = true;
+            else if (key === 'cellpadding' && /^\d+$/.test(rawVal) && kind === 'table') out.cellpadding = parseInt(rawVal, 10);
+            else if (key === 'cellspacing' && /^\d+$/.test(rawVal) && kind === 'table') out.cellspacing = parseInt(rawVal, 10);
+            else if (key === 'class' && rawVal) out.cls = rawVal.replace(/"/g, '');
+        });
+        return out;
+    },
+
+    _parseBarOptions(params) {
+        const out = { expr: null, max: 100, w: '', color: '', cls: '' };
+        const parts = params.split(',');
+        out.expr = (parts.shift() || '').trim() || null;
+        parts.forEach(p => {
+            const eqI = p.indexOf('=');
+            const key = (eqI >= 0 ? p.slice(0, eqI) : p).trim().toLowerCase();
+            const rawVal = eqI >= 0 ? p.slice(eqI + 1).trim() : '';
+            if (key === 'max' && rawVal !== '' && !isNaN(Number(rawVal))) out.max = Number(rawVal);
+            else if (key === 'w' && /^\d+$/.test(rawVal)) out.w = parseInt(rawVal, 10);
+            else if (key === 'color' && rawVal) out.color = rawVal;
+            else if (key === 'class' && rawVal) out.cls = rawVal.replace(/"/g, '');
+        });
+        return out;
+    },
+
+    renderContent(text, choices) {
+        choices = choices || [];
+        text = text.replace(/\{random:(\d+)(?:,(\d+))?\}/g, (_, a, b) => {
+            if (b === undefined) return String(Math.floor(Math.random() * (parseInt(a) + 1)));
+            const lo = parseInt(a), hi = parseInt(b);
+            return String(lo + Math.floor(Math.random() * (hi - lo + 1)));
+        });
+        let html = text
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        html = html.replace(/\u0000nfvar_(\d+)\u0000/g, (_, n) => {
+            const val = this._varValues[parseInt(n, 10)];
+            return val === undefined ? '' : String(val);
+        });
+
+        const legacyImages = [];
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)(?:\{img:[^}]*\})?/g, (m) => {
+            legacyImages.push(m);
+            return '\u0000nflegacy_' + (legacyImages.length - 1) + '\u0000';
+        });
+
+        // === Form Elements ===
+
+        html = html.replace(/\{textfield:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const stateExpr = parts[0];
+            const varName = stateExpr.replace(/^state\./, '');
+            const hint = parts[1] || '';
+            const commitMode = (parts[2] || 'onEnterKey').trim();
+            const id = 'nf-textfield-' + (this._formCounters.textfield++);
+            const initialValue = this.state[varName] !== undefined ? this.state[varName] : '';
+            const escapedVal = String(initialValue).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedHint = hint.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return '<input type="text" id="' + id + '" class="nf-textfield" value="' + escapedVal + '" placeholder="' + escapedHint + '" data-nf-type="textfield" data-target-var="' + varName + '" data-commit="' + commitMode + '">';
+        });
+
+        html = html.replace(/\{checkbox:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const stateExpr = parts[0];
+            const varName = stateExpr.replace(/^state\./, '');
+            const value = parts[1] ? parts[1].trim() : '';
+            const checked = !!this.state[varName];
+            const id = 'nf-checkbox-' + (this._formCounters.checkbox++);
+            const escapedVal = value.replace(/"/g, '&quot;');
+            return '<input type="checkbox" id="' + id + '" class="nf-checkbox"' + (checked ? ' checked' : '') + ' data-nf-type="checkbox" data-target-var="' + varName + '" data-value="' + escapedVal + '">';
+        });
+
+        const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const renderRadioOption = (rparams, groupId) => {
+            const parts = rparams.split(',').map(s => s.trim());
+            const stateExpr = parts[0];
+            const varName = stateExpr.replace(/^state\./, '');
+            const value = parts[1] ? parts[1].trim() : '';
+            const checked = String(this.state[varName]) === value;
+            const escapedVal = value.replace(/"/g, '&quot;');
+            return '<input type="radio" class="nf-radio" name="' + groupId + '" value="' + escapedVal + '"' + (checked ? ' checked' : '') + ' data-nf-type="radio" data-target-var="' + varName + '">';
+        };
+
+        // Auto-group free-standing radiobutton lines into {radiogroup} blocks:
+        // consecutive options targeting the same state variable form one group.
+        // Radios already inside an explicit {radiogroup} block are left alone.
+        const bareLines = html.split('\n');
+        const bareOut = [];
+        let group = [];
+        let lastVar = null;
+        let groupDepth = 0;
+        const flush = () => {
+            if (group.length) {
+                bareOut.push('{radiogroup}\n' + group.join('\n') + '\n{endradiogroup}');
+                group = [];
+            }
+        };
+        for (const line of bareLines) {
+            const t = line.trim();
+            if (t === '') { flush(); lastVar = null; bareOut.push(line); continue; }
+            const isRadioLine = t.startsWith('{radiobutton:') && t.indexOf('}') !== -1;
+            if (isRadioLine && groupDepth === 0) {
+                const v = t.slice('{radiobutton:'.length, t.indexOf(',')).trim();
+                if (lastVar !== null && v !== lastVar) flush();
+                lastVar = v;
+                group.push(t);
+                continue;
+            }
+            flush();
+            lastVar = null;
+            bareOut.push(line);
+            const opens = (t.match(/\{radiogroup\}/g) || []).length;
+            const closes = (t.match(/\{endradiogroup\}/g) || []).length;
+            groupDepth = Math.max(0, groupDepth + opens - closes);
+        }
+        flush();
+        html = bareOut.join('\n');;
+
+        html = html.replace(/\{radiogroup\}([\s\S]*?)\{endradiogroup\}/g, (match, body) => {
+            const groupId = 'nf-rg-' + (this._formCounters.radiogroup++);
+            const options = [];
+            const tagRe = /\{radiobutton:([^}]+)\}/g;
+            let m;
+            while ((m = tagRe.exec(body)) !== null) {
+                options.push({ params: m[1], index: m.index, tagEnd: m.index + m[0].length });
+            }
+            const blocks = [];
+            for (let k = 0; k < options.length; k++) {
+                const input = renderRadioOption(options[k].params, groupId);
+                let label = options[k].params.split(',').map(s => s.trim()).slice(2)
+                    .filter(a => a !== 'autocheck').join(', ').trim();
+                if (!label) {
+                    const start = options[k].tagEnd;
+                    const end = (k + 1 < options.length) ? options[k + 1].index : body.length;
+                    label = body.slice(start, end).replace(/\s*\n+\s*/g, ' ').trim();
+                }
+                blocks.push('<label class="nf-radio-option">' + input + (label ? '<span class="nf-radio-label">' + esc(label) + '</span>' : '') + '</label>');
+            }
+            return '<span class="nf-radiogroup">' + blocks.join('') + '</span>';
+        });
+
+        html = html.replace(/\{textarea:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const varName = parts[0].replace(/^state\./, '');
+            const hint = parts[1] || '';
+            const commitMode = (parts[2] || 'blur').trim();
+            const rows = parts[3] || 3;
+            const id = 'nf-textarea-' + (this._formCounters.textarea++);
+            const value = this.state[varName] !== undefined ? this.state[varName] : '';
+            const escapedVal = String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedHint = hint.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return '<textarea id="' + id + '" class="nf-textarea" rows="' + rows + '" placeholder="' + escapedHint + '" data-nf-type="textarea" data-target-var="' + varName + '" data-commit="' + commitMode + '">' + escapedVal + '</textarea>';
+        });
+
+        html = html.replace(/\{number:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const varName = parts[0].replace(/^state\./, '');
+            const min = parts[1] ? ' min="' + parts[1] + '"' : '';
+            const max = parts[2] ? ' max="' + parts[2] + '"' : '';
+            const step = parts[3] ? ' step="' + parts[3] + '"' : '';
+            const id = 'nf-number-' + (this._formCounters.number++);
+            const initial = this.state[varName] !== undefined ? this.state[varName] : '';
+            return '<input type="number" id="' + id + '" class="nf-number"' + min + max + step + ' value="' + initial + '" data-nf-type="number" data-target-var="' + varName + '">';
+        });
+
+        html = html.replace(/\{dropdown:([^}]+)\}/g, (match, params) => {
+            const parts = params.split(',').map(s => s.trim());
+            const varName = parts[0].replace(/^state\./, '');
+            const options = parts.slice(1);
+            const id = 'nf-dropdown-' + (this._formCounters.dropdown++);
+            const opts = options.map(o => {
+                const v = o.replace(/"/g, '&quot;');
+                const sel = String(this.state[varName]) === o ? ' selected' : '';
+                return '<option value="' + v + '"' + sel + '>' + v + '</option>';
+            }).join('');
+            return '<select id="' + id + '" class="nf-dropdown" data-nf-type="dropdown" data-target-var="' + varName + '">' + opts + '</select>';
+        });
+
+        html = html.replace(/\{img:([^}]+)\}/g, (match, params) => {
+            const o = this._parseMediaOptions(params);
+            const alt = o.alt ? ' alt="' + o.alt.replace(/"/g, '&quot;') + '"' : '';
+            return '<img src="' + o.target + '"' + alt + this._assetCorsAttr() + ' style="' + this._mediaSizeStyle(o) + '">';
+        });
+
+        html = html.replace(/\{video:([^}]+)\}/g, (match, params) => {
+            const o = this._parseMediaOptions(params);
+            const aria = o.alt ? ' aria-label="' + o.alt.replace(/"/g, '&quot;') + '"' : '';
+            return '<video src="' + o.target + '" class="nf-video" controls preload="metadata"' + aria + this._assetCorsAttr()
+                + ' style="' + this._mediaSizeStyle(o) + '"'
+                + (o.autoplay ? ' autoplay' : '')
+                + (o.repeat ? ' loop' : '')
+                + (o.mute ? ' muted' : '')
+                + '></video>';
+        });
+
+        const consumed = {};
+        html = html.replace(/\[([^\]]*)\]\(node:([^)]+)\)/g, (match, text, slug) => {
+            if (consumed[slug] === undefined) consumed[slug] = 0;
+            const matchIndices = choices.reduce((acc, c, i) => {
+                if (c.target_node_id === slug) acc.push(i);
+                return acc;
+            }, []);
+            const choiceIdx = matchIndices[consumed[slug]] !== undefined ? matchIndices[consumed[slug]] : matchIndices[0];
+            consumed[slug]++;
+            const choice = choices[choiceIdx];
+            let disabled = false;
+            if (choice && choice.prerequisite) {
+                disabled = !this._evalBool(choice.prerequisite);
+            }
+            const cls = disabled ? ' class="disabled"' : '';
+            return '<a href="#" data-node="' + slug + '" data-choice-index="' + choiceIdx + '"' + cls + '>' + text + '</a>';
+        });
+
+        // === Tables & Stat Bars ===
+        html = html.replace(/\n?\{table:([^}]*)\}/g, (m, params) => {
+            const o = this._parseTableOptions(params, 'table');
+            let style = '';
+            if (o.w) style += 'width:' + o.w + 'px;';
+            if (o.cellspacing) style += 'border-spacing:' + o.cellspacing + 'px;';
+            if (o.cellpadding) style += '--nf-pad:' + o.cellpadding + 'px;';
+            const cls = ['nf-table', o.center && 'nf-center', o.border && 'nf-bordered', o.cls].filter(Boolean).join(' ');
+            return '<table class="' + cls + '"' + (style ? ' style="' + style.trim() + '"' : '') + '>';
+        });
+        html = html.replace(/\{endtable\}\n?/g, '</table>');
+        html = html.replace(/\n?\{tr:([^}]*)\}/g, (m, params) => {
+            const o = this._parseTableOptions(params, 'tr');
+            const cls = o.cls ? ' class="' + o.cls + '"' : '';
+            return '<tr' + (o.align ? ' style="text-align:' + o.align + '"' : '') + cls + '>';
+        });
+        html = html.replace(/\{endtr\}\n?/g, '</tr>');
+        html = html.replace(/\n?\{td:([^}]*)\}/g, (m, params) => {
+            const o = this._parseTableOptions(params, 'td');
+            const cls = ['nf-cell', o.cls].filter(Boolean).join(' ');
+            let style = '';
+            if (o.w) style += 'width:' + o.w + 'px;';
+            if (o.align) style += 'text-align:' + o.align + ';';
+            if (o.valign) style += 'vertical-align:' + o.valign + ';';
+            return '<td class="' + cls + '"'
+                + (o.colspan ? ' colspan="' + o.colspan + '"' : '')
+                + (o.rowspan ? ' rowspan="' + o.rowspan + '"' : '')
+                + (style ? ' style="' + style.trim() + '"' : '') + '>';
+        });
+        html = html.replace(/\{endtd\}\n?/g, '</td>');
+        html = html.replace(/\{bar:([^}]+)\}/g, (m, params) => {
+            const o = this._parseBarOptions(params);
+            if (o.expr === null) return m;
+            let value;
+            try { value = new Function('state', 'setup', 'helper', 'temp', 'call', 'return ' + this._norm(o.expr))(this.state, this.setup, this.helper, this.temp, (...r) => this._callFunction(r[0], r.slice(1))); }
+            catch { return m; }
+            if (value === undefined || value === null) value = 0;
+            else { value = Number(value); if (!isFinite(value)) return m; }
+            const max = Number(o.max);
+            const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+            let style = 'width:' + pct + '%';
+            if (o.color) style += ';background:' + o.color;
+            const cls = ['nf-bar', o.cls].filter(Boolean).join(' ');
+            const outerStyle = o.w ? ' style="width:' + o.w + 'px"' : '';
+            return '<div class="' + cls + '"' + outerStyle + '><div class="nf-bar-fill" style="' + style + '"></div></div>';
+        });
+
+        html = html.replace(/\[([^\]]*)\]\([^)]+\)/g, '$1');
+
+        html = html
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+        html = html
+            .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+            .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+            .replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+        html = html.replace(/\{wait:(\d+)(?:,\s*fade:(\d+))?\}([\s\S]*?)\{endwait\}/g, (match, duration, fade, inner) => {
+            const content = inner.trim().replace(/\n/g, '<br>');
+            if (!this._freshEntry) return content;
+            fade = fade || 500;
+            return '<div class="wait-sequence" data-duration="' + duration + '" data-fade="' + fade + '" style="opacity:0;transition:opacity ' + fade + 'ms ease">' + content + '</div>';
+        });
+        html = html
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/\n/g, '<br>');
+        html = html.replace(/(<div class="wait-sequence"[^>]*>[\s\S]*?<\/div>)(?:\s*(?:<br\s*\/?>)?\s*<div class="wait-sequence"[^>]*>[\s\S]*?<\/div>)*/g, (match) => {
+            const count = match.split('class="wait-sequence"').length - 1;
+            if (count >= 2) return '<div class="wait-container">' + match + '</div>';
+            return match;
+        });
+        html = html.replace(/\{dialogue:([^}]*)\}([\s\S]*?)\{enddialogue\}/g, (match, params, body) => {
+            params = params.trim();
+            let leftHtml = '';
+            const imgMatch = params.match(/^(<img[^>]*>)/);
+            if (imgMatch) {
+                leftHtml += imgMatch[1].replace(
+                    'style="max-width:100%;height:auto"',
+                    'class="dialogue-avatar"'
+                );
+                const rest = params.slice(imgMatch[1].length).trim();
+                if (rest.startsWith(',')) {
+                    const name = rest.slice(1).trim();
+                    if (name) leftHtml += '<div class="dialogue-name">' + name + '</div>';
+                }
+            } else if (params) {
+                leftHtml += '<div class="dialogue-name">' + params + '</div>';
+            }
+            const bodyHtml = body.trim().replace(/\n/g, '<br>');
+            return '<div class="dialogue-block">' +
+                (leftHtml ? '<div class="dialogue-left">' + leftHtml + '</div>' : '') +
+                '<div class="dialogue-text">' + bodyHtml + '</div>' +
+            '</div>';
+        });
+        html = html.replace(/\u0000nflegacy_(\d+)\u0000/g, (_, n) => legacyImages[parseInt(n, 10)]);
+        html = html.replace(/\u0000nfaction_(\d+)\u0000/g, (_, n) => {
+            const link = (this._actionBlockLinks || [])[parseInt(n, 10)];
+            return link === undefined ? '' : link;
+        });
+        html = html.replace(/\u0000nflive_(\d+)\u0000/g, (_, n) => {
+            return '<div class="nf-live" data-live-region="' + n + '"></div>';
+        });
+            return '<p>' + html + '</p>';
+    },
+
+    _checkRedirects(text) {
+        const m = text.match(/\{redirect:([^}]+)\}/);
+        if (!m) return null;
+        const target = m[1].trim();
+        if (target === 'back') return 'back';
+        if (this.nodes[target]) return target;
+        return null;
+    },
+
+    runWaitSequences() {
+        this._waitTimeouts?.forEach(t => clearTimeout(t));
+        this._waitTimeouts = [];
+        const content = document.getElementById('passage-content');
+        const sequences = content.querySelectorAll('.wait-sequence');
+        if (sequences.length === 0) { this._tailElements = null; return; }
+        const lastSeq = sequences[sequences.length - 1];
+        const lastFade = parseInt(lastSeq.dataset.fade, 10) || 500;
+        const lastContainer = lastSeq.closest('.wait-container');
+        const anchor = lastContainer || lastSeq;
+        const tailElements = [];
+        let next = anchor.nextElementSibling;
+        while (next) {
+            tailElements.push(next);
+            next.style.opacity = '0';
+            next = next.nextElementSibling;
+        }
+        this._tailElements = tailElements;
+        let totalDelay = 0;
+        sequences.forEach((seq, i) => {
+            const duration = parseInt(seq.dataset.duration, 10);
+            const fade = parseInt(seq.dataset.fade, 10);
+            const isLast = i === sequences.length - 1;
+            const t1 = setTimeout(() => {
+                seq.style.opacity = '1';
+                if (!isLast) {
+                    const t2 = setTimeout(() => {
+                        seq.style.opacity = '0';
+                    }, duration);
+                    this._waitTimeouts.push(t2);
+                }
+            }, totalDelay);
+            this._waitTimeouts.push(t1);
+            totalDelay += duration + (isLast ? 0 : fade * 2);
+        });
+        const tailT = setTimeout(() => {
+            (this._tailElements || []).forEach(el => {
+                el.style.transition = 'opacity ' + lastFade + 'ms ease';
+                el.style.opacity = '1';
+            });
+            setTimeout(() => {
+                (this._tailElements || []).forEach(el => el.style.transition = '');
+                this._tailElements = null;
+            }, lastFade + 50);
+        }, totalDelay);
+        this._waitTimeouts.push(tailT);
+    },
+
+    _renderOnlyWarn(kind) {
+        if (!this._renderOnlyWarned.has(kind)) {
+            this._renderOnlyWarned.add(kind);
+            console.warn('[NodeFable] render-only pass skipped {' + kind + '}');
+        }
+    },
+
+    renderLiveRegion(region) {
+        const el = document.querySelector('[data-live-region="' + region.id + '"]');
+        if (!el) return;
+        this._varValues = [];
+        this._renderOnly = true;
+        let html;
+        try { html = this._processDirectives(region.body, false).text; }
+        finally { this._renderOnly = false; }
+        el.innerHTML = this.renderContent(html, [], []);
+    },
+
+    refreshLiveRegions() {
+        for (const region of this._liveRegions) {
+            this.renderLiveRegion(region);
+            if (region.interval) this._liveTimers.push(setInterval(() => this.tickRegion(region), region.interval));
+        }
+    },
+
+    tickRegion(region) {
+        if (document.hidden) return;
+        const out = this._processDirectives(region.body, false);
+        const redirect = this._checkRedirects(out.text);
+        if (redirect === 'back') { this.goBack(); return; }
+        if (redirect && this.nodes[redirect]) { this.render(redirect); return; }
+        if (this.currentNodeId) this._reRender();
+    },
+
+    _ai: {
+        _queue: [],
+        _queuedSlugs: new Set(),
+        _running: false,
+        _generatedCount: 0,
+        _storageKey: 'nodefable_ai_config',
+
+        init() {
+            if (!game.state._aiNodes) game.state._aiNodes = {};
+            if (!game.state._aiReady) game.state._aiReady = {};
+            this.hydrateFromState();
+
+            const overlay = document.getElementById('ai-config-overlay');
+            if (overlay) {
+                overlay.addEventListener('click', (e) => {
+                    if (e.target === e.currentTarget) this.hideConfig();
+                });
+            }
+
+            this.scanAllAuthoredFrontier();
+            this._updateStatus();
+        },
+
+        getConfig() {
+            const defaults = {
+                enabled: true,
+                endpoint: 'http://localhost:11434/v1/chat/completions',
+                apiKey: '',
+                model: 'llama3.2',
+                depth: 2,
+                maxChoices: 3,
+                worldPrompt: 'Continue the interactive story seamlessly from the authored starting area. Keep descriptions vivid, concise (1-2 short paragraphs), and offer 2-3 clear choices.'
+            };
+            const setupAi = (game.setup && typeof game.setup.ai === 'object' && game.setup.ai) ? game.setup.ai : {};
+            let saved = {};
+            try {
+                const raw = localStorage.getItem(this._storageKey);
+                if (raw) saved = JSON.parse(raw);
+            } catch {}
+            return { ...defaults, ...setupAi, ...saved };
+        },
+
+        showConfig() {
+            game.closeMobilePanel();
+            const cfg = this.getConfig();
+            document.getElementById('ai-cfg-enabled').checked = cfg.enabled !== false;
+            document.getElementById('ai-cfg-endpoint').value = cfg.endpoint || '';
+            document.getElementById('ai-cfg-apikey').value = cfg.apiKey || '';
+            document.getElementById('ai-cfg-model').value = cfg.model || '';
+            document.getElementById('ai-cfg-depth').value = cfg.depth || 2;
+            document.getElementById('ai-cfg-world').value = cfg.worldPrompt || '';
+            document.getElementById('ai-config-overlay').style.display = 'flex';
+        },
+
+        hideConfig() {
+            document.getElementById('ai-config-overlay').style.display = 'none';
+        },
+
+        saveConfigFromModal() {
+            const cfg = {
+                enabled: !!document.getElementById('ai-cfg-enabled').checked,
+                endpoint: document.getElementById('ai-cfg-endpoint').value.trim(),
+                apiKey: document.getElementById('ai-cfg-apikey').value.trim(),
+                model: document.getElementById('ai-cfg-model').value.trim(),
+                depth: Math.max(1, Math.min(3, parseInt(document.getElementById('ai-cfg-depth').value, 10) || 2)),
+                worldPrompt: document.getElementById('ai-cfg-world').value.trim()
+            };
+            try { localStorage.setItem(this._storageKey, JSON.stringify(cfg)); } catch {}
+            this.hideConfig();
+            game.notify('AI settings saved.');
+            this.scanAllAuthoredFrontier();
+            if (game.currentNodeId) this.onEnterNode(game.currentNodeId);
+            this._updateStatus();
+        },
+
+        hydrateFromState() {
+            if (!game.state._aiNodes) game.state._aiNodes = {};
+            if (!game.state._aiReady) game.state._aiReady = {};
+            for (const [slug, nodeObj] of Object.entries(game.state._aiNodes)) {
+                if (game._authoredNodeIds && game._authoredNodeIds.has(slug)) continue;
+                if (nodeObj && !nodeObj._aiPlaceholder) {
+                    game.nodes[slug] = nodeObj;
+                    game.state._aiReady[slug] = true;
+                }
+            }
+        },
+
+        _extractLinks(node) {
+            const links = [];
+            const seen = new Set();
+            if (node && typeof node.text === 'string') {
+                const re = /\[([^\]]*)\]\(node:([^)]+)\)/g;
+                let m;
+                while ((m = re.exec(node.text)) !== null) {
+                    const slug = m[2].trim();
+                    if (slug && !seen.has(slug)) {
+                        seen.add(slug);
+                        links.push({ slug, label: m[1].trim() || slug });
+                    }
+                }
+            }
+            if (node && Array.isArray(node.choices)) {
+                for (const c of node.choices) {
+                    const slug = c && c.target_node_id ? String(c.target_node_id).trim() : '';
+                    if (slug && !seen.has(slug)) {
+                        seen.add(slug);
+                        links.push({ slug, label: (c.text || slug).trim() });
+                    }
+                }
+            }
+            return links;
+        },
+
+        scanAllAuthoredFrontier() {
+            const cfg = this.getConfig();
+            if (!cfg.enabled) return;
+            for (const id of (game._authoredNodeIds || [])) {
+                if (id === 'setup' || id === 'side_panel') continue;
+                const node = game.nodes[id];
+                if (!node || node.is_function) continue;
+                for (const link of this._extractLinks(node)) {
+                    if (!game.nodes[link.slug]) {
+                        this.enqueue(link.slug, 1, id, link.label);
+                    }
+                }
+            }
+        },
+
+        onEnterNode(startId) {
+            const cfg = this.getConfig();
+            if (!cfg.enabled || !startId || !game.nodes[startId]) return;
+            const maxDepth = Math.max(1, Math.min(3, cfg.depth || 2));
+            const visited = new Set([startId]);
+            const bfs = [{ id: startId, depth: 0 }];
+
+            while (bfs.length > 0) {
+                const curr = bfs.shift();
+                if (curr.depth >= maxDepth) continue;
+                const node = game.nodes[curr.id];
+                if (!node || node._aiPlaceholder) continue;
+
+                for (const link of this._extractLinks(node)) {
+                    const nextDepth = curr.depth + 1;
+                    if (!game.nodes[link.slug]) {
+                        this.enqueue(link.slug, nextDepth, curr.id, link.label);
+                    } else if (!game.nodes[link.slug]._aiPlaceholder && !visited.has(link.slug)) {
+                        visited.add(link.slug);
+                        bfs.push({ id: link.slug, depth: nextDepth });
+                    }
+                }
+            }
+        },
+
+        enqueue(slug, depth, parentId, linkLabel) {
+            if (!slug || this._queuedSlugs.has(slug)) return;
+            if (game.nodes[slug] && !game.nodes[slug]._aiPlaceholder) return;
+
+            if (!game.nodes[slug]) {
+                game.nodes[slug] = {
+                    id: slug,
+                    title: linkLabel || slug,
+                    _aiPlaceholder: true,
+                    text: '*Approaching "' + (linkLabel || slug) + '"...*\n\n{live:400}{if: state._aiReady && state._aiReady[' + JSON.stringify(slug) + ']}{redirect: ' + slug + '}{endif}{endlive}',
+                    choices: []
+                };
+            }
+
+            this._queuedSlugs.add(slug);
+            this._queue.push({ slug, depth, parentId, linkLabel });
+            this._queue.sort((a, b) => a.depth - b.depth);
+            this._updateStatus();
+            this.pumpQueue();
+        },
+
+        prioritize(slug) {
+            const idx = this._queue.findIndex(item => item.slug === slug);
+            if (idx > 0) {
+                const [item] = this._queue.splice(idx, 1);
+                item.depth = 0;
+                this._queue.unshift(item);
+            }
+            this.pumpQueue();
+        },
+
+        async pumpQueue() {
+            if (this._running) return;
+            const cfg = this.getConfig();
+            if (!cfg.enabled || !cfg.endpoint || !cfg.model) return;
+
+            this._running = true;
+            try {
+                while (this._queue.length > 0) {
+                    const item = this._queue.shift();
+                    this._updateStatus('Generating: ' + item.slug);
+                    try {
+                        const generated = await this.generateNode(item, cfg);
+                        if (generated) {
+                            game.nodes[item.slug] = generated;
+                            game.state._aiNodes[item.slug] = generated;
+                            game.state._aiReady[item.slug] = true;
+                            this._generatedCount++;
+                            game._saveToStorage('storyeditor_autosave');
+
+                            // Queue next lookahead depth from the newly created node or current node.
+                            if (game.currentNodeId === item.slug) {
+                                game.render(item.slug);
+                            } else if (game.currentNodeId) {
+                                this.onEnterNode(game.currentNodeId);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('[NodeFable AI] Failed to generate "' + item.slug + '":', err);
+                        game.notify('AI error for "' + item.slug + '": ' + (err.message || err));
+                    } finally {
+                        this._queuedSlugs.delete(item.slug);
+                        this._updateStatus();
+                    }
+                }
+            } finally {
+                this._running = false;
+                this._updateStatus();
+            }
+        },
+
+        _buildSystemPrompt(cfg) {
+            return [
+                'You are the narrative engine for an interactive fiction game.',
+                'World & tone: ' + (cfg.worldPrompt || ''),
+                'Respond ONLY with a single valid JSON object (no markdown fences, no commentary) matching this schema:',
+                '{',
+                '  "title": "Short Location or Scene Title",',
+                '  "text": "1-2 vivid paragraphs of prose. Do not include raw HTML.",',
+                '  "choices": [',
+                '    { "label": "Actionable choice text", "target_slug": "lowercase_snake_case_slug" }',
+                '  ]',
+                '}',
+                'Rules:',
+                '- Provide 2 to ' + (cfg.maxChoices || 3) + ' choices.',
+                '- Use lowercase_snake_case for target_slug (letters, numbers, underscores only).',
+                '- You may link back to existing authored locations when it makes sense, or invent new slugs to explore forward.'
+            ].join('\n');
+        },
+
+        _buildUserPrompt(item) {
+            const parent = item.parentId ? game.nodes[item.parentId] : null;
+            const authoredSummary = Array.from(game._authoredNodeIds || [])
+                .filter(id => id !== 'setup' && id !== 'side_panel' && game.nodes[id] && !game.nodes[id].is_function)
+                .slice(0, 20)
+                .map(id => id + (game.nodes[id].title ? ' (' + game.nodes[id].title + ')' : ''));
+
+            const cleanState = {};
+            for (const [k, v] of Object.entries(game.state || {})) {
+                if (k.startsWith('_')) continue;
+                cleanState[k] = v;
+            }
+
+            return [
+                'Generate the passage for target slug: "' + item.slug + '"',
+                'Player clicked link: "' + (item.linkLabel || item.slug) + '"',
+                parent ? 'Coming from: "' + (parent.title || parent.id) + '" — ' + String(parent.text || '').slice(0, 350) : '',
+                'Known authored locations (can link back to these): ' + (authoredSummary.join(', ') || 'none'),
+                'Current player state: ' + JSON.stringify(cleanState),
+                item.depth >= 2 ? 'Note: This is a depth-2 lookahead node; keep it concise and include at least one link back or forward.' : ''
+            ].filter(Boolean).join('\n');
+        },
+
+        _parseJsonResponse(rawContent) {
+            let s = String(rawContent || '').trim();
+            const fence = s.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+            if (fence) s = fence[1].trim();
+            return JSON.parse(s);
+        },
+
+        _sanitizeSlug(raw) {
+            return String(raw || '')
+                .toLowerCase()
+                .replace(/[^a-z0-9_]+/g, '_')
+                .replace(/^_+|_+$/g, '') || ('scene_' + Math.random().toString(36).slice(2, 7));
+        },
+
+        async _callChatCompletions(cfg, messages, useResponseFormat) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (cfg.apiKey) headers['Authorization'] = 'Bearer ' + cfg.apiKey;
+            const payload = {
+                model: cfg.model,
+                messages,
+                temperature: 0.8
+            };
+            if (useResponseFormat) payload.response_format = { type: 'json_object' };
+
+            const res = await fetch(cfg.endpoint, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const errText = await res.text().catch(() => '');
+                throw new Error('HTTP ' + res.status + (errText ? ': ' + errText.slice(0, 120) : ''));
+            }
+            return res.json();
+        },
+
+        async generateNode(item, cfg) {
+            const messages = [
+                { role: 'system', content: this._buildSystemPrompt(cfg) },
+                { role: 'user', content: this._buildUserPrompt(item) }
+            ];
+
+            let data;
+            try {
+                data = await this._callChatCompletions(cfg, messages, true);
+            } catch (e) {
+                // Fallback for OpenAI-compatible servers that reject response_format
+                data = await this._callChatCompletions(cfg, messages, false);
+            }
+
+            const content = data && data.choices && data.choices[0] && data.choices[0].message
+                ? data.choices[0].message.content
+                : '';
+            const parsed = this._parseJsonResponse(content);
+
+            let text = String(parsed.text || '').trim();
+            const rawChoices = Array.isArray(parsed.choices) ? parsed.choices : [];
+            const choices = [];
+            const linkLines = [];
+
+            for (const c of rawChoices.slice(0, cfg.maxChoices || 3)) {
+                const label = String((c && c.label) || 'Continue').trim();
+                const target = this._sanitizeSlug(c && (c.target_slug || c.slug || label));
+                choices.push({ target_node_id: target, text: label });
+                if (!text.includes('(node:' + target + ')')) {
+                    linkLines.push('[' + label + '](node:' + target + ')');
+                }
+            }
+
+            if (linkLines.length > 0) {
+                text = (text ? text + '\n\n' : '') + linkLines.join('\n');
+            }
+
+            return {
+                id: item.slug,
+                title: String(parsed.title || item.linkLabel || item.slug),
+                text,
+                choices
+            };
+        },
+
+        _updateStatus(activeText) {
+            const el = document.getElementById('ai-status-badge');
+            if (!el) return;
+            const cfg = this.getConfig();
+            if (!cfg.enabled) {
+                el.textContent = 'AI: Off';
+                return;
+            }
+            if (activeText) {
+                el.textContent = activeText + ' (' + this._queue.length + ' queued)';
+            } else if (this._queue.length > 0) {
+                el.textContent = 'AI queue: ' + this._queue.length;
+            } else {
+                el.textContent = 'AI ready (' + this._generatedCount + ' generated)';
+            }
+        }
+    }
+};
+
+if (typeof STORY_DATA !== 'undefined' && STORY_DATA && STORY_DATA.nodes) {
+    game.init(STORY_DATA);
+}
+</script>
+</body>
+</html>

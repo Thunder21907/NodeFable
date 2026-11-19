@@ -4,14 +4,16 @@
 
 ## Overview
 
-The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js` is the entrypoint (loaded via `<script type="module" src="app.js"></script>`); it initializes Drawflow + CodeMirror, calls the wiring functions, and exposes window-level handlers for inline HTML attributes (`onclick`/`onchange`/`onblur`). All business logic lives in `frontend/editor/js/` modules. There is no framework.
+The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js` is the entrypoint (loaded via `<script type="module" src="app.js"></script>`); it initializes `CanvasEngine` + CodeMirror, calls the wiring functions, and exposes window-level handlers for inline HTML attributes (`onclick`/`onchange`/`onblur`). All business logic lives in `frontend/editor/js/` modules. There is no framework.
 
 | Module | Responsibility |
 |---|---|
 | `js/constants.js` | `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` markup, `MAX_UNDO` |
+| `js/canvas-engine.js` | Custom zero-reflow `CanvasEngine` class replacing Drawflow (nodes, SVG Bezier connections, pan, zoom, Pointer Events, pinch-zoom, 500ms touch long-press `contextmenu`) |
 | `js/api.js` | Unified transport adapter (`isTauri`, `invokeTauri`, `cleanAssetRelPath`, `resolveEditorAssetUrl`, `normalizeLegacyAssetUrls`) and `api` transport methods for saves, manifest/project load & save, assets CRUD, preview, and export (routes via Tauri IPC or HTTP `fetch`) |
 | `js/state.js` | The single mutable `state` object (`variables`, `setupVariables`, …) + slug helpers (`slugify`, `generateUniqueSlug`, `getNodeSlug`, `getNodeIdBySlug`, `getNodeTitleBySlug`, `ensureNodeData`) |
-| `js/ui-utils.js` | `showLoader`/`hideLoader`, `showToast`, `escapeHtml`/`escapeRegex`, `showIdError`/`hideIdError`, `validateSlugOnBlur` |
+| `js/ui-utils.js` | `showLoader`/`hideLoader`, `showToast`, `escapeHtml`/`escapeRegex`, `showIdError`/`hideIdError`, `validateSlugOnBlur`, responsive drawer helpers (`isDrawerLayout`, `openDrawer`, `closeDrawers`, `toggleDrawer`; breakpoint `DRAWER_BREAKPOINT = 1024`) |
+| `js/viewer-overlay.js` | In-app fullscreen viewer `#preview-overlay` / `#preview-frame` for the game preview and the tutorial (`openGamePreview`, `openTutorial`, `openViewer`, `closeViewer`, `restartViewer`, `isViewerOpen`, `setupViewerOverlay`) |
 | `js/history.js` | Undo/redo snapshots (`_captureSnapshot`, `snapshotState`, `captureCurrentState`, `restoreState`, `undo`, `redo`) |
 | `js/codemirror-setup.js` | `nodefable` CodeMirror mode, `nodeFableHint` autocomplete, editor bridge (`isSpellcheckActive`, `getEditorValue`, `setEditorValue`, `insertAtCursor`, `insertMarkdown`, `toggleSpellcheck`) |
 | `js/validation.js` | `validateDeadEnds`, `validateOrphans`, `runValidation` |
@@ -19,8 +21,9 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `js/asset-explorer.js` | Asset tree/grid, breadcrumbs, copy/cut/paste/rename/delete/upload, `insertImage` |
 | `js/node-editor.js` | Passage editor, node CRUD, linking, choices/on_enter editors |
 | `js/group-manager.js` | Groups/portals: add/edit/collapse/load/move/delete, portal I/O label + output lines, batched node/connection creation |
-| `js/graph-engine.js` | `setupEditorEvents`, `injectOverlayToNode`/`_createOverlay`, `ensureSidePanelNode` |
+| `js/graph-engine.js` | `setupEditorEvents`, `injectOverlayToNode`/`_createOverlay`, `ensureSidePanelNode`, `ensureSetupNode` |
 | `js/event-delegation.js` | All `setup*()` wiring, context menu, keyboard shortcuts, modal + save/load/export/import functions, `filterNodes` |
+| `js/node-search.js` | Header search suggestions dropdown (`setupSearchSuggestions`, `rankSearchSuggestions`, `collectSearchEntries`, `focusNodeOnCanvas`) |
 
 > **Note on circular imports:** `history.js` ↔ `node-editor.js`, `history.js` ↔ `event-delegation.js`, and `node-editor.js` ↔ `group-manager.js` import each other. This is safe because the bindings are only *used at call time* (inside function bodies, after `DOMContentLoaded`), never during module evaluation. All cross-module references are exported `function` declarations, which are hoisted at module instantiation.
 
@@ -30,7 +33,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 
 | State property | Type | Purpose |
 |---|---|---|
-| `state.editor` | `Drawflow` | The Drawflow canvas instance |
+| `state.editor` | `CanvasEngine` | The `CanvasEngine` graph canvas instance (`window.Drawflow` alias) |
 | `state.selectedNodeId` | `number \| null` | Currently selected node's Drawflow numeric ID |
 | `state.linkingFromId` | `number \| null` | Node ID from which a link is being drawn |
 | `state.nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, slug, on_enter, is_start, group}` |
@@ -39,7 +42,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `state.setupVariables` | `object` | Keyed by variable name → `{type, value}` (setup/constants scope, persisted in manifest) |
 | `state.isEditingVariable` | `boolean` | True while the variable form is in edit mode |
 | `state.editVariableBackup` | `object \| null` | Backup `{name, type, value, scope}` of the variable being edited |
-| `state.isLoading` | `boolean` | True during project/group load to suppress `connectionCreated` side effects and bypass RAF throttle |
+| `state.isLoading` | `boolean` | True during bulk project/group load: bypasses the `updateConnectionNodes` RAF throttle (edges draw synchronously) and suppresses `snapshotState()` |
 | `state.currentProjectName` | `string \| null` | Name of the currently loaded/saved project |
 | `state.loaderCount` | `number` | Reference counter for nested loader calls |
 | `state.toastTimeout` | `number \| null` | Timeout ID for auto-dismissing toast notifications |
@@ -57,9 +60,8 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `state.editingPortalNodeId` | `number \| null` | Portal node ID whose group editor is open |
 | `state.collapsedGroupsData` | `object` | Group ID → cached full node data (used to reload a collapsed group without a fetch) |
 | `state.portalOutputSvg` | `object` | Portal node ID → array of SVG elements drawn to linked nodes |
-| `state.collapsingSlugs` | `Set` | Slugs of a group being collapsed; `nodeRemoved` skips choice/link stripping for them so cross-group connections survive |
 
-`MAX_UNDO` (50) and SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` live in `js/constants.js`.
+`MAX_UNDO` (50), `MAX_PORTAL_ROWS` (30) and SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` live in `js/constants.js`.
 
 ---
 
@@ -67,7 +69,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 
 | Variable | Type | Purpose |
 |---|---|---|
-| `editor` | `Drawflow` | The Drawflow canvas instance |
+| `editor` | `CanvasEngine` | The `CanvasEngine` graph canvas instance |
 | `selectedNodeId` | `number \| null` | Currently selected node's Drawflow numeric ID |
 | `linkingFromId` | `number \| null` | Node ID from which a link is being drawn |
 | `nodesData` | `object` | Keyed by Drawflow numeric ID → `{title, text, choices, slug, on_enter, is_start, group}` |
@@ -75,7 +77,7 @@ The NodeFable graph canvas frontend is a set of **standard ES modules**. `app.js
 | `variables` | `object` | Keyed by variable name → `{type, value}` |
 | `isEditingVariable` | `boolean` | True while the variable form is in edit mode |
 | `editVariableBackup` | `object \| null` | Backup `{name, type, value}` of the variable being edited |
-| `isLoading` | `boolean` | True during project/group load to suppress `connectionCreated` side effects and bypass RAF throttle |
+| `isLoading` | `boolean` | True during bulk project/group load: bypasses the `updateConnectionNodes` RAF throttle (edges draw synchronously) and suppresses `snapshotState()` |
 | `currentProjectName` | `string \| null` | Name of the currently loaded/saved project |
 | `selectedLoadName` | `string \| null` | Selected item in the load modal list |
 | `loaderCount` | `number` | Reference counter for nested loader calls |
@@ -103,19 +105,95 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 
 ## Initialization
 
-### `DOMContentLoaded` handler
+### `DOMContentLoaded` handler (`app.js`)
 
-1. Gets `#tab-graph` container, creates `new Drawflow(container)` and calls `editor.start()`.
-2. Monkey-patches `editor.updateConnectionNodes` with a last-call-wins RAF throttle (avoids layout thrashing during drag, bypassed during `isLoading`).
+1. Gets `#tab-graph` container, creates `new CanvasEngine(container)` and calls `state.editor.start()`.
+2. Wraps `state.editor.updateConnectionNodes` with a per-node RAF coalescer: every node requested during a frame is updated once on the next frame (bypassed during `state.isLoading`). See *Performance* below.
 3. Sets `zoom_max = 2.0`, `zoom_min = 0.15`, `zoom_value = 0.05`, `curvature = 0.3`.
 4. Calls `setupEditorEvents()`.
-5. Registers a `mousedown` listener on the container to fix Drawflow panning when clicking a container gap.
-6. Registers a `wheel` listener that calls `_repositionPortalOutputs()` after zoom (Ctrl/Cmd+wheel).
-7. Calls `setupDelegation()` (which internally runs `setupTabs()`, `setupModalEvents()`, `setupEditorDelegation()`, `setupAssetDelegation()`, `setupAEToolbar()`, `setupVariableDelegation()`, `setupNodeOverlayDelegation()`, `setupButtonDelegation()`, `setupSearch()`, `setupContextMenu()`) and `setupKeyboardShortcuts()` (all in `js/event-delegation.js`).
+5. Wires `#canvas-zoom-controls` (`[data-canvas-zoom]` buttons `in`, `reset` (1:1), `out`, `fit`) to `state.editor.zoom_in()`, `zoom_reset()`, `zoom_out()`, and `zoomToFit()`.
+6. Wires responsive side drawers for `<=1024px` viewports via the `ui-utils.js` helpers: `#toggle-vars-drawer` → `toggleDrawer('var-panel')`, `#toggle-inspector-drawer` → `toggleDrawer('sidebar')`; `#drawer-backdrop`, the drawers' close buttons and `Escape` call `closeDrawers()`. The Inspector drawer also opens on a node tap (`nodeTapped`) and from the node overlay's Edit button.
+7. Calls `setupDelegation()` (which internally runs `setupTabs()`, `setupModalEvents()`, `setupEditorDelegation()`, `setupAssetDelegation()`, `setupAEToolbar()`, `setupVariableDelegation()`, `setupNodeOverlayDelegation()`, `setupButtonDelegation()`, `setupSearch()`, `setupContextMenu()`, `setupViewerOverlay()`) and `setupKeyboardShortcuts()` (all in `js/event-delegation.js`).
 8. Initializes CodeMirror 5 on `#passage-content-editor` with the custom `nodefable` mode (see below), `material-darker` theme, line numbers, line wrapping, bracket matching, `viewportMargin: Infinity`, and `extraKeys` (`Enter` → `newlineAndIndentContinueMarkdownList`, `Ctrl-Space` → autocomplete).
 9. Wires CodeMirror + textarea auto-save listeners (see Markdown Auto-Save).
 10. Registers global `keydown` listener for keyboard shortcuts (Ctrl+S, Ctrl+Z/Y, Delete/Backspace, Escape) via `setupKeyboardShortcuts()`.
 11. Calls `ensureSidePanelNode()` and `ensureSetupNode()` after a 100ms delay (both reserved nodes appear on any fresh canvas).
+
+---
+
+## Canvas Engine (`js/canvas-engine.js`)
+
+`CanvasEngine` is a zero-reflow, touch-and-mouse-capable replacement for Drawflow (v0.0.60), also assigned to `window.Drawflow` for compatibility. It preserves the `.parent-drawflow` / `.drawflow` / `.drawflow-node` / `svg.connection` DOM structure and `drawflow.drawflow.Home.data` data shape expected by the rest of the editor.
+
+### Event contract (programmatic vs. user intent)
+
+- **Programmatic calls are silent.** `addConnection`, `removeSingleConnection`, `removeConnectionNodeId`, `removeNodeId` and `clear` do **not** dispatch `connectionCreated` / `connectionRemoved` / `nodeRemoved`. Project load, group collapse/expand/switch and undo/redo therefore never trigger choice/markdown side effects, and no `collapsingSlugs`-style guards are needed.
+- **User intents opt in** with a trailing `{ notify: true }` option: linking mode (`handleLinkTargetClick`), unlinking from the choices list (`removeChoiceLink`) or the edge context menu, and node deletion (`deleteCurrentNode` / `deleteNodeOverlay` → only `nodeRemoved`; the node's edges are torn down silently).
+- **Engine-handled interactions** (dropping a dragged link on a port, Delete/Backspace on a selected edge, `removeConnection()`) dispatch `beforeUserEdit` *before* mutating (graph-engine takes the undo snapshot there) and then notify.
+- **Render hooks always fire:** `nodeCreated`, `nodeResized`, `nodeSelected`, `nodeUnselected`, `nodeMoved` (drag end), `nodeTapped` (press + release on a node without movement, long-press or cancel), `mouseMove` (during node drag), `connectionSelected`, `connectionUnselected`, `zoom`, `translate`.
+
+### Constructor properties
+
+| Property | Default | Purpose |
+|---|---|---|
+| `container` | `container` | Host DOM element (`#tab-graph`); receives `.parent-drawflow` and `tabIndex = 0` in `start()`. `.parent-drawflow` must not set `display` (tab visibility is owned by `.tab-content` / `.tab-content.active`) |
+| `precanvas` | `null` | Inner `.drawflow` element created by `start()`, transformed via `translate(canvas_x, canvas_y) scale(zoom)` with `transform-origin: 0 0` |
+| `zoom`, `zoom_max`, `zoom_min`, `zoom_value` | `1`, `2.0`, `0.15`, `0.05` | Current zoom scale and bounds/step |
+| `curvature` | `0.3` | Bezier control-point factor for `createCurvature()` |
+| `canvas_x`, `canvas_y` | `0`, `0` | Current canvas pan offset in screen pixels |
+| `editor_selected` | `false` | True while panning the canvas |
+| `drag` | `false` | True while dragging a node |
+| `connection` | `false` | True while dragging a new port-to-port connection |
+| `node_selected`, `connection_selected`, `ele_selected` | `null` | Currently selected node element / selected edge `.main-path` |
+| `nodeIdCounter` | `1` | Auto-incrementing numeric node ID counter |
+| `events` | `{}` | Registered event listeners keyed by event name |
+| `module` | `'Home'` | Active module name |
+| `drawflow` | `{ drawflow: { Home: { data: {} } } }` | Node metadata, positions (`pos_x`, `pos_y`), measured size (`_w`, `_h`) and port connection maps |
+| `_pointers`, `_pinch`, `_longPressTimer` | `Map`, `null`, `null` | Active pointers; pinch state `{origin, prev: {dist, midX, midY}}`; 500ms touch long-press timer |
+| `_lastPointerType`, `_suppressNativeCtxUntil` | `null`, `0` | Used to de-duplicate the engine's synthetic long-press `contextmenu` and the browser's native one |
+| `_resizeObserver` | `ResizeObserver \| null` | Observes every node element; keeps `_w` / `_h` current |
+| `_dragState`, `_panState`, `_connState` | `null` | Transient gesture state during node drag, canvas pan, and temporary SVG connection drag |
+
+### Methods
+
+| Method | Behaviour |
+|---|---|
+| `on(event, callback)` / `dispatch(event, details)` | Registers and invokes listeners (see *Event contract*). |
+| `start()` | Adds `.parent-drawflow` + `tabIndex = 0` to `container`, creates `<div class="drawflow">` as `precanvas`, creates the `ResizeObserver`, and calls `_bindEvents()`. |
+| `addNode(name, numInputs, numOutputs, posX, posY, className, data, title)` | Creates `.drawflow-node` with `.inputs`, `.drawflow_content_node`, and `.outputs` ports. **`title` is rendered with `textContent`** (never parsed as HTML — node titles from imported JSON / project files cannot inject markup). Records the entry in `drawflow.drawflow.Home.data[id]`, observes the element for resizes, dispatches `nodeCreated`, returns `id`. |
+| `hasConnection(idOutput, idInput, outputClass, inputClass)` | True if that exact edge exists. |
+| `addConnection(idOutput, idInput, outputClass, inputClass, options)` | Deduplicates and records the link on both nodes' port lists, creates `<svg class="connection node_in_node-{in} node_out_node-{out} {outClass} {inClass}">` with `.hit-path` + `.main-path`, routes it via `updateConnectionNodes`. Returns `true` if created. Dispatches `connectionCreated` only with `{ notify: true }`. |
+| `updateConnectionNodes(id)` | Finds all `svg.connection` elements for `nodeId` and recomputes their box + path from `_getPortCoords()` (pure math, no layout reads). |
+| `removeSingleConnection(idOutput, idInput, outputClass, inputClass, options)` | Removes the connection from both nodes and its SVG (clearing `connection_selected` if it pointed at it). Returns `true` if something was removed. Dispatches `connectionRemoved` only with `{ notify: true }`. |
+| `removeConnectionNodeId(id)` | Silently removes every inbound and outbound connection attached to `nodeId`. |
+| `removeNodeId(id, options)` | Silently removes the node's edges, unobserves + removes its DOM element and data entry, clears selection/drag state for it. Dispatches `nodeRemoved` only with `{ notify: true }`. |
+| `zoomTo(z, px, py)` | Clamps `z` and zooms keeping the container-local point `(px, py)` fixed on screen (default: container centre). Dispatches `zoom`. |
+| `zoomToFit({ padding = 40, maxZoom = 1, animate })` | Frames the bounding box of every node (sizes from `_w` / `_h` or defaults) in the container, never zooming in past `maxZoom`, via `centerOn()`. Used by the **Fit** zoom button. |
+| `zoom_in()` / `zoom_out()` / `zoom_reset()` | `zoomTo(zoom ± zoom_value)` / `zoomTo(1)` anchored at the canvas centre (used by `#canvas-zoom-controls`). |
+| `zoom_refresh()` | Clamps `zoom`, re-applies the transform, dispatches `zoom`. |
+| `panBy(dx, dy)` | Moves the viewport and dispatches `translate`. |
+| `clear()` | Silent full reset: disconnects the `ResizeObserver`, cancels gestures, empties `precanvas` (including portal lines) and the data map, clears selection. |
+| `clearSelection()` | Silently drops node + edge selection (used by Escape). |
+| `removeConnection()` | User intent: removes the selected edge (`beforeUserEdit` → `removeSingleConnection(..., { notify: true })`). |
+| `getPortCoords(nodeId, portClass, isOutput)` / `_getPortCoords(...)` | Port centre in world coordinates. Uses `_w` / `_h` (measured once, then kept current by the `ResizeObserver` → `nodeResized`), falling back to `208` (portal `248`) × `68` while unmeasured. Story nodes centre vertically (`h / 2`); portal rows (`.portal_node` / `.node-portal`) use `28 + idx * 29` to align with `_labelPortalIO`. |
+| `positionConnectionSvg(svg, p1, p2)` | Public router: sizes the SVG to the exact Bezier bounding box and sets `.main-path` / `.hit-path`. Also used for portal lines. |
+| `createCurvature(...)` | Cubic Bezier `M ... C ...` path using `Math.abs(x2 - x1) * curvature`. |
+| `_bindEvents()` | See below. |
+
+### Input handling (`_bindEvents`)
+
+- **Pointer Events** on `container`; `pointermove` / `pointerup` / `pointercancel` are also tracked on `window` (de-duplicated via an `__nfHandled` flag), so node drags, pans and link drags keep following the pointer after it leaves the canvas. Pointer capture is deliberately **not** used — it would retarget `click` away from nodes and break linking mode.
+- Interactive child controls (`button, input, select, textarea, .node-overlay, .portal-actions, .node-collapse-btn, #canvas-zoom-controls`) are ignored.
+- **Link drag** from a story node's `.output`: draws a dashed `svg.temp-connection`; on release `document.elementFromPoint` picks the drop target. `.input` → that port; a story node's body → `input_1`; a **portal body is ignored** (a slug row must be targeted explicitly). Dropping onto a port that is **already linked** from the same output toggles the link off (`beforeUserEdit` → `removeSingleConnection(..., { notify: true })`). **Portal outputs never start a drag** (read-only).
+- **Unplug / re-plug (input side):** pressing a *linked* `.input` arms an unplug; moving more than 6px detaches the most recent link on that port (`beforeUserEdit` type `connectionDetach`, then a silent removal) and its source end follows the pointer as a temp connection. On release: another port / story-node body → re-plugged there and `connectionRewired` `{output_id, output_class, from: {input_id, input_class}, to: {input_id, input_class}}` is dispatched; the original port → restored silently; a port the source already links to, a portal body or empty canvas → `connectionRemoved` for the old edge. `pointercancel` or a second finger restores the link. A press without movement stays a click (node selection, linking-mode target); unlinked inputs keep the normal node drag. One gesture = one undo step.
+- **Mouse pointers:** a new mouse `pointerdown` drops stale mouse entries from `_pointers` (lost `pointerup`) so they cannot fake a pinch.
+- **Edges:** only the visible stroke is clickable (`.main-path { pointer-events: visibleStroke }` + 14px transparent `.hit-path`); portal lines (`svg.portal-output`) and the temp line are not clickable.
+- **Nodes:** select (`nodeSelected` / `nodeUnselected`) + drag (`pos_x`/`pos_y` scaled by `1 / zoom`, `mouseMove` per frame, `nodeMoved` on release if moved).
+- **Empty canvas:** pan (`translate`).
+- **Two pointers:** pinch-zoom anchored at the finger midpoint plus simultaneous two-finger pan.
+- **Wheel:** `Ctrl`/`Cmd` + wheel (and trackpad pinch, reported as ctrl+wheel) zooms smoothly at the cursor (`exp(-deltaY * 0.0015)`, `deltaMode` normalised); plain wheel / two-finger scroll **pans** (`Shift` + wheel pans horizontally).
+- **Touch long-press (500ms, cancelled by >8px movement)** on a node *or an edge* dispatches a bubbling `contextmenu` `MouseEvent` (node menu / *Unlink Connection*). A capture-phase `contextmenu` listener makes whichever comes first win: the browser's native long-press menu cancels the timer, and a native event arriving within 1s after the synthetic one is suppressed.
+- **Delete / Backspace** on a focused canvas with a selected edge calls `removeConnection()` and `preventDefault()`s; the document-level shortcut handler skips events that are already `defaultPrevented`.
 
 ---
 
@@ -147,33 +225,34 @@ SVG icon constants `SVG_LINK`, `SVG_EDIT`, `SVG_CLOSE` hold inline SVG markup fo
 
 ---
 
-## Drawflow Event Wiring
+## Canvas Engine Event Wiring (`js/graph-engine.js`)
 
 ### `setupEditorEvents()`
 
-Finds the `.drawflow` DOM element, then registers all Drawflow and DOM event listeners. If `.drawflow` is not found, logs an error and returns early (no events are wired).
+Finds the `.drawflow` DOM element, then registers all `CanvasEngine` and DOM event listeners. If `.drawflow` is not found, logs an error and returns early (no events are wired). Because the engine only notifies for user intents (see *Event contract*), the `nodeRemoved` / `connectionCreated` / `connectionRemoved` handlers never run during loads, collapse/expand, group switching or undo/redo.
 
 Then iterates `document.querySelectorAll('.drawflow-node')` to inject overlays (deferred) and collapse buttons into any nodes that already exist.
 
-#### Drawflow events
+#### Engine events
 
 | Event | Handler | Behaviour |
 |---|---|---|
-| `nodeSelected` | `openPassageEditor(nodeId)` | Opens the passage editor for the clicked node (skipped while `linkingFromId !== null`). |
+| `nodeSelected` | `injectOverlayToNode(nodeId, false)` + `openPassageEditor(nodeId)` | Immediately mounts `.node-overlay` (so touch taps display Edit / Delete / Link / Menu buttons without needing `mouseenter`; `.node-overlay` also shows when `.drawflow-node.selected` is active) and opens the passage editor for the clicked node (skipped while `linkingFromId !== null`). |
 | `nodeUnselected` | `closePassageEditor()` | Hides the passage editor. |
-| `nodeCreated` | `injectOverlayToNode(nodeId, true)` | Defers overlay injection until first hover. |
-| `nodeMoved` + container `mousemove` | Live portal-line reposition | Drawflow dispatches `nodeMoved` only on drag end, so `setupEditorEvents` also listens for `mousemove` on `state.editor.container` (registered after Drawflow's own handler so node positions are already updated) and, when `state.editor.drag` is set, RAF-throttled (last-call-wins) `_repositionPortalOutputs()` re-glues portal SVG lines to their endpoints during the drag. |
-
-| `nodeRemoved` | Cleanup + choice cleanup | Deletes the node from `nodesData` and `slugToNodeId`. Unless the slug is in `collapsingSlugs` (a group collapse in progress), removes orphaned choice references from all other nodes and strips their `[text](node:slug)` markdown links. Runs `validateDeadEnds()`, `validateOrphans()`, and `_refreshPortalOutputs()`. Calls `closePassageEditor()` if the removed node was selected. |
-| `connectionCreated` | Choice creation | **Skips during `isLoading`.** Portal-target case: maps the input port index to a portal slug, pushes a `{targetSlug, text, prerequisite, mutation}` choice and inserts the markdown link. Portal-source case: blocked with an alert and the connection is removed. Normal case: pushes a `{targetSlug, text, prerequisite, mutation, connectionId}` choice, inserts `[Title](node:slug)` at cursor or appends, re-renders choices, runs validation, refreshes portal outputs. |
-| `connectionRemoved` | Choice cleanup + snapshot | Takes undo snapshot. Portal-target case: removes the choice whose slug matches the port index. Normal case: removes the matching choice by `targetSlug` and strips the markdown link from text — **unless** the target slug is in `collapsingSlugs` (a group collapse in progress), in which case the choice + markdown are preserved so the portal's inbound lines still render and nothing is lost on save. Re-renders choices, runs validation, refreshes portal outputs. |
+| `nodeCreated` | `injectOverlayToNode(nodeId, true)` | Defers overlay injection until first hover or selection. |
+| `nodeTapped` | Open Inspector drawer | On drawer layouts (`isDrawerLayout()`, ≤1024px) and outside linking mode, `openDrawer('sidebar')`. Dragging a node never opens it. |
+| `beforeUserEdit` | `snapshotState()` | Undo snapshot right before an engine-handled user edit (drag-to-link drop, Delete on a selected edge). |
+| `mouseMove` / `nodeMoved` / `nodeResized` | Live portal-line reposition | RAF-throttled `_repositionPortalOutputs()` while a node is dragged, when it is dropped, and when a node's rendered size changes. |
+| `nodeRemoved` | Cleanup + choice cleanup | (User deletion only.) Strips every choice + `[text](node:slug)` link targeting the removed slug from all other nodes via `stripChoiceAndLink()`, deletes the node from `nodesData` / `slugToNodeId`, runs validation and `_refreshPortalOutputs()`, closes the editor if it showed the node. |
+| `connectionCreated` | Choice creation | (User link only.) Portal-target case: maps the input port to a portal slug (the `+N more` bucket row is rejected with a toast), pushes a `{targetSlug, text, prerequisite, mutation}` choice and inserts the markdown link. Portal-source case: alert + silent removal using the event's real `output_class`. If the source already has a choice to the target slug (portal or normal case), the link is **toggled off** (`_unlinkExisting`: drop the new edge silently, `stripChoiceAndLink`, toast). Normal case otherwise pushes a choice and inserts `[Title](node:slug)` at the cursor or appends it. Runs validation and refreshes portal outputs. |
+| `connectionRewired` | Retarget choice | (Input unplug + re-plug.) Resolves old/new slugs (`_slugForInputPort`: portal row slug or node slug). New target is the portal `+N more` row → the move is reverted with a toast. Source already links to the new slug → merge (`stripChoiceAndLink` for the old slug). Otherwise the existing choice's `targetSlug` is changed (text / prerequisite / mutation kept) and `[text](node:old)` links are rewritten to `node:new` (link text kept; a link is appended if none existed). Refreshes editor, validation, portal lines; toast "Link moved". |
+| `connectionRemoved` | Choice cleanup | (User unlink only; the snapshot is taken by the caller / `beforeUserEdit`.) Resolves the target slug (portal row → `portalSlugIds[idx]`, otherwise the node's slug) and calls `stripChoiceAndLink()` — choice **and** markdown link are removed in both cases. Shows a "Link removed" toast, runs validation and refreshes portal outputs. |
 
 #### DOM events on `.drawflow`
 
 | Event | Behaviour |
 |---|---|
-| `mousedown` (capture phase) | If click lands on `.drawflow-node`, exits pan mode before Drawflow's handler fires. |
-| `click` | Ignores `.node-overlay` clicks. Closes passage editor if click is on empty canvas. Handles linking-mode target clicks (`handleLinkTargetClick`). |
+| `click` | Intercepts `[data-overlay-action]` clicks first: `menu` stops propagation and dispatches a bubbling `contextmenu` `MouseEvent` on the node element (1-tap access to `#context-menu` for touch users); `edit` on mobile viewports (`window.innerWidth <= 1024`) opens `#sidebar.drawer-open` and shows `#drawer-backdrop` (while allowing `setupNodeOverlayDelegation` to run `editNode`). Other `.node-overlay` clicks are ignored. Closes passage editor if click is on empty canvas. Handles linking-mode target clicks (`handleLinkTargetClick`). |
 | `dblclick` | Opens passage editor and switches to Markdown Editor tab. |
 
 ---
@@ -239,7 +318,7 @@ Creates a unique group ID (`chapter_N`), pushes a group entry into `groupsManife
 
 ### `injectOverlayToNode(nodeId, deferred)`
 
-Finds the `.drawflow-node` DOM element by `[data-id="{nodeId}"]`. If no `.node-overlay` exists, either creates it immediately or (when `deferred` is true) attaches a `mouseenter` listener that creates it on first hover. `_createOverlay` builds the Edit ✎ / Delete ✖ / Link 🔗 button row — the Link button is omitted for portal nodes (outbound portal connections are read-only).
+Finds the `.drawflow-node` DOM element by `[data-id="{nodeId}"]`. If no `.node-overlay` exists, either creates it immediately or (when `deferred` is true) attaches a `mouseenter` listener that creates it on first hover (and `nodeSelected` also calls `injectOverlayToNode(nodeId, false)` so touch taps inject immediately). `_createOverlay` builds the Edit ✎ / Delete ✖ / Link 🔗 / Menu ⋯ (`data-overlay-action="menu"`) button row — the Link button is omitted for portal nodes (outbound portal connections are read-only), while the Menu button is included for both normal and portal nodes.
 
 ### `updateStartBadgeOnCanvas(nodeId)`
 
@@ -259,7 +338,7 @@ Calls `openPassageEditor(parseInt(nodeId))`. Wired to overlay's Edit button.
 
 ### `deleteNodeOverlay(nodeId)`
 
-Takes undo snapshot. Prompts for confirmation, calls `editor.removeNodeId(...)`, cleans up `nodesData` and `slugToNodeId`, closes passage editor.
+Portals are routed to `deleteGroupFromPortal()`. Reserved nodes (`side_panel`, `setup`) are refused. Otherwise prompts for confirmation, takes undo snapshot, calls `editor.removeNodeId(..., { notify: true })` (the `nodeRemoved` handler strips links to it), cleans up `nodesData`, `slugToNodeId` and group membership, closes the passage editor.
 
 ### `deleteCurrentNode()`
 
@@ -279,7 +358,7 @@ Clears `linkingFromId`, removes `is-linking` class.
 
 ### `handleLinkTargetClick(targetId, inputName)`
 
-Self-link cancels. If the target is a portal: with a specific `input_N` port it takes an undo snapshot and connects (mapped to a portal slug by `connectionCreated`); otherwise alerts "Cannot link to a portal group". Normal case: takes undo snapshot, calls `editor.addConnection(...)`, then cancels linking mode.
+**Toggle:** re-linking two nodes that are already linked removes the link. Self-link cancels. A portal target needs a specific `input_N` row (otherwise alerts "Cannot link to a portal group"). Takes one undo snapshot, then: if the edge exists → `removeSingleConnection(..., { notify: true })` (the `connectionRemoved` handler strips choice + markdown); otherwise → `addConnection(..., { notify: true })`, where `connectionCreated` either creates the choice or, if the source already had a choice to that slug (e.g. a cross-group link shown only as a dashed portal line), toggles it off. Cancels linking mode.
 
 ---
 
@@ -439,7 +518,7 @@ Full CRUD for global variables with type-specific parsing (int, float, bool, str
 
 ## Asset Management
 
-All asset and project network/transport calls go through `js/api.js` (routing via Tauri IPC when running inside Tauri or HTTP `fetch` otherwise).
+All asset and project network/transport calls go through `js/api.js` (routing via Tauri IPC when running inside Tauri or HTTP `fetch` otherwise). In Tauri mode: `invokeTauri` wraps rejected command errors (plain `detail` strings) in `Error` objects so callers can use `err.message`; uploads are sent as a raw binary IPC body (`Uint8Array`) with percent-encoded `x-nf-name` / `x-nf-filename` / `x-nf-folder` headers; `exportProjectZip` returns `{path}` of the written zip. Command reference: `docs/backend.md` → *Rust backend*.
 
 ### `refreshAssets()`
 
@@ -447,7 +526,7 @@ Async. Calls `api.listAssets(state.currentProjectName)` (returns `{ tree }`). Ca
 
 ### `renderAssetTree(nodes, container, parentPath)`
 
-Recursively renders tree view into `#asset-tree`. Folders show a toggle (▶) and 📁 icon. Files show thumbnail, syntax string, and delete button. Folder rows have inline "new folder" and "upload" buttons. Editor preview thumbnails resolve via `resolveEditorAssetUrl(state.currentProjectName, path)` (`nfasset://localhost/<proj>/assets/<path>` in Tauri mode, `/api/assets/<proj>/<path>` in HTTP mode). The per-file syntax string comes from `assetSyntax(path, node.name)`.
+Recursively renders tree view into `#asset-tree`. All thumbnails (`.asset-preview`, `.ae-thumb`) are emitted with `crossorigin="anonymous"` so `nfasset://` images display under `cargo tauri dev` too. Folders show a toggle (▶) and 📁 icon. Files show thumbnail, syntax string, and delete button. Folder rows have inline "new folder" and "upload" buttons. Editor preview thumbnails resolve via `resolveEditorAssetUrl(state.currentProjectName, path)` (Tauri mode: `convertFileSrc('<proj>/assets/<path>', 'nfasset')` → `nfasset://localhost/…` on Linux/macOS, `http://nfasset.localhost/…` on Windows/Android, falling back to `nfasset://localhost/<proj>/assets/<path>` with per-segment encoding; HTTP mode: `/api/assets/<proj>/<path>`). The per-file syntax string comes from `assetSyntax(path, node.name)`.
 
 ### `assetSyntax(relPath, name)`
 
@@ -577,11 +656,25 @@ The Import modal pastes a single node as JSON. `importNode()` validates that inp
 
 ### `exportGame()`
 
-Async. Requires `currentProjectName`. **Auto-saves** via `saveProjectSilent()` before redirecting to `/api/export/{name}`. Shows loader.
+Async. Requires `currentProjectName`. **Auto-saves** via `saveProjectSilent()`, then `api.exportProjectZip(name)`: in the app (Tauri) the zip is written locally (default `~/Downloads/<Project>.zip` on desktop) and a toast shows the path; in legacy HTTP mode the browser downloads `/api/export/{name}`. Shows loader.
 
 ### `previewGame()`
 
-Async. Requires `currentProjectName`. Auto-saves via `saveProjectSilent()`, then fetches `GET /api/preview/{name}`. Opens preview URL in new tab. Shows loader.
+Async. Requires `currentProjectName`. Auto-saves via `saveProjectSilent()`, then `api.buildPreviewHtml(name)` and shows the result in the **in-app overlay** (`openGamePreview`) — no new tab, because new tabs/windows are unavailable inside the Tauri desktop/Android webview. Shows loader.
+
+### In-app viewer (`js/viewer-overlay.js`)
+
+`#preview-overlay` is a fullscreen dialog (`z-index: 900`, safe-area aware top bar) with a title, **↻ Restart** and **✕ Back to Editor**, plus `<iframe id="preview-frame">`.
+
+| Function | Behaviour |
+|---|---|
+| `openGamePreview(projectName, data)` | Title "Playing Preview: <name>". `data.url` (HTTP backend: `/api/preview-file/<name>`) → `iframe.src`; `data.html` (Tauri) → `iframe.srcdoc`. Sandbox `allow-scripts allow-modals allow-same-origin allow-forms` (same-origin kept so the runtime's localStorage saves work — same trust level as the old new-tab preview). Restart visible. |
+| `openTutorial()` | Loads `tutorial.html` unsandboxed, no Restart. Used by the toolbar Tutorial button and the editor's "Need syntax help?" link (`data-action="openTutorial"`; `setupButtonDelegation` `preventDefault()`s `<a data-action>` clicks). |
+| `restartViewer()` | Removes the runtime's autosave keys (`storyeditor_autosave`, `storyeditor_save`; manual slots 1-5 kept) and reloads the frame, so the preview starts at the start node. |
+| `closeViewer()` | Hides the overlay, sets the frame to `about:blank` (stops game audio / timers / live regions), restores focus. |
+| `setupViewerOverlay()` | Wires the buttons and a capture-phase `Escape` handler that closes the viewer when focus is in the editor document. |
+
+While the viewer is open (`isViewerOpen()`), `setupKeyboardShortcuts()` ignores all editor shortcuts (Delete, Ctrl+Z/Y/S, …) so they cannot act on the hidden editor.
 
 ### `saveProjectSilent()`
 
@@ -597,7 +690,7 @@ Async. Syncs textarea content to `nodesData`. Serializes via `_buildSavePayload(
 
 ### `_captureSnapshot()`
 
-Deep-clones `nodesData`, copies `slugToNodeId`, and reads all Drawflow connections + node positions (`_posX`, `_posY` from the Drawflow data).
+Deep-clones `nodesData`, copies `slugToNodeId`, captures group state (`loadedGroupIds` as an array, deep-cloned `collapsedGroupsData`, and deep-cloned `groupsManifest`), and reads all node positions (`_posX`, `_posY`) plus multi-port connections (`{ sourceId, targetId, outputClass, inputClass }` across every output port in `node.outputs`) from `state.editor.drawflow.drawflow['Home'].data`.
 
 ### `snapshotState()`
 
@@ -609,13 +702,13 @@ Same as `snapshotState()` but returns the snapshot instead of pushing to a stack
 
 ### `restoreState(snap)`
 
-Clears canvas, rebuilds all nodes via `editor.addNode()` with an `oldToNewId` mapping, restores connections using the new IDs, and restores `slugToNodeId` with remapped IDs. In a RAF: refreshes connection paths, runs validation, re-applies start/side-panel classes, and re-applies the search filter.
+Closes the passage editor, tears the canvas down silently with `editor.clear()` (also removes portal lines) and resets `portalOutputSvg` / `portalNodeIds` / `nodesData` / `slugToNodeId`, restores `state.loadedGroupIds` (as a `Set`), `state.collapsedGroupsData`, and `state.groupsManifest` (set to `null` when the snapshot had none), and rebuilds all nodes with an `oldToNewId` mapping (writing straight into `state.nodesData`): portal entries (`data.isPortal`) are recreated via `createPortalNode()`, while normal nodes are recreated via `editor.addNode()`. Restores multi-port connections using `conn.outputClass || 'output_1'` and `conn.inputClass || 'input_1'`, remaps `slugToNodeId`, and attaches collapse buttons via `_setupNodeCollapseButton()`. In a RAF: refreshes connection paths, calls `_refreshPortalOutputs()`, runs validation, re-applies start/side-panel/utility/function node classes, and re-applies the search filter.
 
 ### `undo()` / `redo()`
 
 Pop from respective stack, push current state to the other stack, call `restoreState()`. Show toast feedback.
 
-**Snapshot trigger points:** `addNode()`, `deleteNodeOverlay()`, `deleteCurrentNode()`, `handleLinkTargetClick()`, `connectionRemoved`, `updateCurrentNode()`, `collapseGroup()`.
+**Snapshot trigger points:** `addNode()`, `deleteNodeOverlay()`, `deleteCurrentNode()`, `handleLinkTargetClick()`, `removeChoiceLink()`, context-menu *Unlink Connection*, the engine's `beforeUserEdit` (drag-to-link drop, Delete on a selected edge), `updateCurrentNode()`, `collapseGroup()`, `deleteGroupFromPortal()`. Programmatic engine calls never snapshot (they are silent), so one user action produces exactly one undo step.
 
 ---
 
@@ -628,8 +721,8 @@ Registered in the global `keydown` handler:
 | `Ctrl+S` | Save. If project named, silent-save + toast. If unnamed, open save modal. Skips when typing in an input. |
 | `Ctrl+Z` | Undo (skipped when an input/textarea is focused so native undo applies) |
 | `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
-| `Delete` / `Backspace` | Delete selected node (only when not in input) |
-| `Escape` | Cancel linking → clear search → close modal → deselect node |
+| `Delete` / `Backspace` | Delete the selected connection if one is selected, else the selected node (only when not in input; skipped if the canvas already handled the key — `e.defaultPrevented`) |
+| `Escape` | Cancel linking → clear search → close modal (when `#modal-overlay` is shown, `style.display === 'flex'`) → clear canvas selection + deselect node |
 
 Uses `e.code` for letter keys, `e.key` for non-letter keys. Checks `e.metaKey` for Mac compatibility.
 
@@ -643,9 +736,22 @@ Iterates all nodes. If query matches node title or slug (case-insensitive), adds
 
 ### `setupSearch()`
 
-Registered in `DOMContentLoaded`. Attaches `input` event with 150ms debounce. Escape key clears the search and blurs the input.
+Registered in `DOMContentLoaded`. Calls `setupSearchSuggestions()`, then attaches the `input` event with 150ms debounce (`filterNodes`). Escape key clears the search and blurs the input.
 
 Re-applied after project load and after undo/restore.
+
+### Search suggestions (`js/node-search.js`)
+
+Typing in `#node-search` opens a dropdown (`ul#node-search-suggestions.search-suggestions`, `position: fixed` and appended to `<body>` because the header clips overflow on narrow screens) with up to 8 matching passages. Each row shows the title and slug id with the match highlighted (`<mark>`, all text HTML-escaped) and a badge for groups / collapsed passages.
+
+| Function | Behaviour |
+|---|---|
+| `collectSearchEntries()` | Candidates from state: loaded passages (`kind: 'node'`), each portal's group (`'group'`, by label + id), and every slug inside a collapsed / unloaded group (`'collapsed'`, title from `collapsedGroupsData` when cached) which focuses that group's portal. |
+| `rankSearchSuggestions(entries, query, limit = 8)` | Pure ranking on title **and** slug, case-insensitive: exact (0) > prefix (1) > word-start after space/`_`/`-`/`.`/`:`/`/` (2) > substring (3); non-loaded entries get +0.5 so loaded passages win ties; then shorter, then alphabetical. Adds `score` and `matchIn` (`'title'` / `'slug'`). Unit-tested in `tests/suites/node_search.test.js`. |
+| `focusNodeOnCanvas(nodeId)` | Switches to the Graph tab, clears the search filter, `editor.focusNode(id, { minZoom: 0.75 })` (animated centring), `editor.selectNode(id)` (opens the passage / group editor) and flashes the node (`.node-focus-flash`). |
+| `setupSearchSuggestions()` | ARIA combobox wiring (`role="combobox"`, `aria-expanded`, `aria-controls`, `aria-activedescendant`; options `role="option"`). Keys: ↓/↑ move, Enter picks (first by default), Escape closes. Mouse: hover highlights, `mousedown` picks (so the input's blur doesn't close the list first). Picking clears the query. Blur closes the list; the list repositions on resize. |
+
+Engine support (`canvas-engine.js`): `centerOn(wx, wy, { zoom, animate, duration })` centres a world point (280ms easeOutCubic via RAF; instant under `prefers-reduced-motion`; cancelled by any pointerdown / wheel), `focusNode(id, { minZoom })`, and `selectNode(id)` (dispatches `nodeUnselected` for the previous node, then `nodeSelected`).
 
 ---
 
@@ -699,14 +805,14 @@ Serialized in `_buildSavePayload()` (used by both `confirmSave()` and `saveProje
 
 ### Portal nodes
 
-Portal nodes (`.node-portal`) represent unloaded groups on the canvas. They have dashed borders, dimmed appearance, and per-slug I/O circles labeled with the group's slug ids. Selecting a portal opens the group editor (right sidebar) showing group name/label fields and a list of nodes in the group.
+Portal nodes (`.node-portal`) represent unloaded groups on the canvas. They have dashed borders, dimmed appearance, and per-slug I/O circles labeled with the group's slug ids. At most `MAX_PORTAL_ROWS` (30) slug rows are shown; larger groups get one extra **bucket row** (`input_31` / `output_31`, labelled "… +N more (Load Group to view)") that all hidden slugs share (`_portalPortIndex(i, total)`), so their cross-group lines still render. User links onto the bucket row are rejected. Selecting a portal opens the group editor (right sidebar) showing group name/label fields and a list of nodes in the group.
 
 `portalOutputSvg` holds synthetic SVG curves drawn from a portal's outputs (rendered/refreshed by `_renderPortalOutputs` / `_refreshPortalOutputs` / `_positionPortalOutputLine`). Two kinds of directed lines are drawn, one per slug row:
 
-- **Inbound** — a loaded node whose `choices` target a slug in the portal's group: line from the loaded node's `output_1` to the portal's `input_{i+1}` (directed node → portal).
-- **Outbound** — the portal's own `portalSlugIds[i].connections` (from the manifest): lines from `output_{i+1}` to the resolved targets. A target resolves to a loaded passage node via `slugToNodeId`, or to another collapsed portal's `input_{M+1}` circle (`_resolvePortalTargetEl`). Intra-group targets are skipped. Outbound portal connections are **read-only** — the `connectionCreated` handler still blocks portal-source links.
+- **Inbound** — a loaded node whose `choices` target a slug in the portal's group: line from the loaded node's `output_1` to that slug's row input (directed node → portal). Skipped when a user-drawn engine edge already connects the same node and row.
+- **Outbound** — the portal's own `portalSlugIds[i].connections` (from the manifest): lines from `output_{i+1}` to the resolved targets. A target resolves to a loaded passage node via `slugToNodeId`, or to another collapsed portal's row input (`_resolvePortalTarget`). Lines are de-duplicated per row. Intra-group targets are skipped. Outbound portal connections are **read-only** — the `connectionCreated` handler still blocks portal-source links.
 
-All portals are refreshed (`_refreshPortalOutputs`) on zoom, after connection changes, and after expand/collapse/delete so lines re-point to whichever nodes/portals are currently on the canvas. Each line stores its endpoints on `svg._portalRefs`; the `nodeMoved` event (registered in `setupEditorEvents`) and the Ctrl/Cmd+wheel zoom handler call `_repositionPortalOutputs()`, which re-positions existing lines via their stored refs (no DOM churn). Positioning math mirrors Drawflow's `updateConnectionNodes`: screen-space `getBoundingClientRect()` offsets are scaled by `1/zoom` into the precanvas's untransformed coordinate space, so lines stay glued at any zoom/pan.
+All portals are refreshed (`_refreshPortalOutputs`) after connection changes and after expand/collapse/delete so lines re-point to whichever nodes/portals are currently on the canvas. Each line stores its endpoints on `svg._portalRefs` as `{from, to}` = `{nodeId, port, isOutput}` descriptors; the `mouseMove` / `nodeMoved` / `nodeResized` handlers call `_repositionPortalOutputs()`, which re-routes existing lines (no DOM churn). Routing is pure math through the engine (`getPortCoords` + `positionConnectionSvg`) in world coordinates — no `getBoundingClientRect()`. Lines live inside the transformed precanvas, so pan/zoom need no repositioning.
 
 ### Group actions
 
@@ -722,18 +828,19 @@ All portals are refreshed (`_refreshPortalOutputs`) on zoom, after connection ch
 | `removeNodeFromGroups(slug, group)` | Removes a deleted node's slug from its group's `slug_ids` |
 | `loadGroupFromPortal(nodeId)` | Loads a group's full nodes (or cached `collapsedGroupsData`), replaces the portal |
 | `moveToGroupFromPortal(nodeId)` | Unloads all groups except the target, loads the selected group, recreates other portal stubs |
-| `deleteGroupFromPortal(nodeId)` | Removes portal + updates manifest (and clears cached collapsed data) |
-| `collapseGroup(groupId)` | Caches the group's full node data, marks its slugs in `collapsingSlugs`, removes its nodes, creates a portal stub at the centroid, clears `collapsingSlugs`, refreshes all portals |
+| `deleteGroupFromPortal(nodeId)` | Confirms, takes an undo snapshot, removes the portal and its lines, updates the manifest, clears cached collapsed data, closes the inspector if it showed the portal, refreshes portals + validation. Also used when a portal is deleted via the overlay ✕, `Delete` key or context menu |
+| `collapseGroup(groupId)` | Caches the group's full node data, removes its nodes silently (cross-group choices/markdown are untouched), creates a portal stub at the centroid, refreshes all portals + validation |
 | `_setupPortalActions(nodeId)` | Adds Load / Move / Delete buttons to a portal node |
 | `_setupNodeCollapseButton(nodeId)` | Adds a collapse (⬆) button to loaded nodes that belong to a group |
 | `_labelPortalIO(nodeId, slugIds)` | Labels portal I/O circles with slug ids, aligns content rows |
 | `_renderPortalOutputs(portalNodeId)` | Draws inbound + outbound synthetic SVG connection lines for one portal |
 | `_refreshPortalOutputs()` | Re-renders portal output lines for every portal with SVG entries |
-| `_resolvePortalTargetEl(targetSlug, currentPortalId)` | Resolves an outbound target slug → loaded passage node's `input_1` circle (falls back to the node element) or another collapsed portal's `input_{M+1}` circle |
-| `_drawPortalOutputLine(portalNodeId, outputEl, targetEl)` | Creates a synthetic SVG line from a portal output to a target element |
-| `_positionPortalOutputLine(...)` | Positions a portal SVG line (RAF-wrapped, uses `_positionPortalOutputLineSync`) |
-| `_positionPortalOutputLineSync(...)` | Positions a portal SVG line synchronously; scales rect offsets by `1/zoom` (Drawflow-compatible) |
-| `_repositionPortalOutputs()` | Re-positions all existing portal SVG lines from their stored `svg._portalRefs` (used on node drag + zoom) |
+| `_portalPortIndex(i, total)` | 0-based port row for slug `i` (slugs past `MAX_PORTAL_ROWS` map to the bucket row) |
+| `_resolvePortalTarget(targetSlug, currentPortalId)` | Resolves an outbound target slug → `{nodeId, port, isOutput:false}` for a loaded passage node's `input_1` or another collapsed portal's row |
+| `_drawPortalOutputLine(portalNodeId, from, to)` | Creates a synthetic `svg.connection.portal-output` between two port descriptors |
+| `_positionPortalOutputLine(svg, from, to)` | Routes a portal line synchronously via `editor.getPortCoords` + `editor.positionConnectionSvg` |
+| `_repositionPortalOutputs()` | Re-routes all existing portal lines from their stored `svg._portalRefs` (node drag / drop / resize) |
+| `_removePortalLines(portalNodeId)` / `_closeEditorsFor(nodeId)` | Internal helpers: drop a portal's lines; close the inspector if it shows a removed node/portal |
 
 ### Context menu
 
@@ -741,6 +848,7 @@ All portals are refreshed (`_refreshPortalOutputs`) on zoom, after connection ch
 
 - **Portal node:** Load Group, Move to Group, Delete Group.
 - **Normal node** (not `side_panel`): Collapse Group, Delete Node.
+- **Connection** (right-click, or touch long-press on an edge): *Unlink Connection* → undo snapshot + `removeSingleConnection(..., { notify: true })`.
 
 `hideContextMenu()` hides the menu; clicks outside or Escape close it. `contextMenuTargetId` stores the right-clicked node.
 
@@ -752,11 +860,11 @@ collapseGroup(groupId)
   ├─ nodes = _getGroupNodeIds(groupId)        ← derived from nodesData
   ├─ collect node data + positions (nodesData + drawflow pos)
   ├─ collapsedGroupsData[groupId] = nodeData
-  ├─ add group slugs to collapsingSlugs   ← nodeRemoved skips stripping these
-  ├─ editor.removeNodeId() for each node; clear nodesData/slugToNodeId/loadedGroupIds
+  ├─ editor.removeNodeId() for each node (silent → cross-group choices kept);
+  │   clear nodesData/slugToNodeId/loadedGroupIds
   ├─ createPortalNode({id, label, node_count, slug_ids}, centerX, centerY)
-  ├─ collapsingSlugs.clear()
-  └─ _refreshPortalOutputs()   ← new portal + all others redraw
+  ├─ _refreshPortalOutputs()   ← new portal + all others redraw
+  └─ validateDeadEnds(); validateOrphans()
 
 loadGroupFromPortal(portalNodeId)
   ├─ nodes = collapsedGroupsData[groupId]     ← cache consumed BEFORE the
@@ -776,10 +884,10 @@ loadGroupFromPortal(portalNodeId)
   │      the collapse cache (which stores frontend `targetSlug` format) work.
   ├─ collect connections (intra-group + cross-group via slugToNodeId)
   ├─ isLoading = true
-  ├─ createConnectionsBatched(connections)   ← RAF-chunked, suppresses connectionCreated
+  ├─ createConnectionsBatched(connections)   ← RAF-chunked, silent addConnection, synchronous drawing
   ├─ isLoading = false
   ├─ loadedGroupIds.add(groupId)
-  ├─ updateConnectionNodes + updateStartBadgeOnCanvas for all
+  ├─ updateConnectionNodes + start/utility/function badges for all
   ├─ _refreshPortalOutputs()   ← other portals re-point to real nodes
   └─ validateDeadEnds(); validateOrphans()
 ```
@@ -795,12 +903,12 @@ createNodesBatched(nodes, onNodeCreated, batchSize=50)
 createConnectionsBatched(connections, onConnectionCreated, batchSize=100)
   ─ Returns Promise
   ─ Adds connections in RAF batches, updating the loader text
-  ─ Run under isLoading=true so connectionCreated side effects are suppressed
+  ─ addConnection is silent; run under isLoading=true so every edge is drawn synchronously
 ```
 
 ### Deferred overlay injection
 
-`injectOverlayToNode(nodeId, deferred=true)` — when `deferred` is true, the overlay (Edit/Delete/Link buttons) is only injected on first mouseenter, not at node creation time. Reduces DOM work during large project loads.
+`injectOverlayToNode(nodeId, deferred=true)` — when `deferred` is true, the overlay (Edit/Delete/Link/Menu buttons) is only injected on first mouseenter (or immediately on `nodeSelected` for touch taps), not at node creation time. Reduces DOM work during large project loads.
 
 ---
 
@@ -828,11 +936,12 @@ startLinking(sourceId)           ← user clicks 🔗
 
 click on target node
   └─ handleLinkTargetClick(targetId)
-       ├─ snapshotState()
-       └─ editor.addConnection(sourceId, targetId, ...)
+       ├─ snapshotState()                     ← skipped if the edge already exists
+       └─ editor.addConnection(sourceId, targetId, ..., { notify: true })
             └─ fires connectionCreated
                  ├─ (portal target) map port → slug, push choice, insert link
                  ├─ (portal source) alert + remove connection
+                 ├─ (choice already exists) keep edge only, no duplicate
                  ├─ create choice, push to choices[]
                  ├─ insert [Title](node:slug) into content
                  ├─ renderChoices(sourceId)
@@ -848,7 +957,7 @@ confirmLoad()
   ├─ fetch /api/load/manifest?name=...        ← manifest only (lightweight)
   ├─ restore variables from manifest
   ├─ fetch /api/load?name=...&groups=side_panel  ← only side_panel nodes
-  ├─ editor.removeNodeId(...) for each existing node
+  ├─ editor.clear() + portalOutputSvg = {}   ← silent, no undo snapshots
   ├─ nodesData = {}, slugToNodeId = {}, groupsManifest = manifest
   ├─ first pass: editor.addNode(...) side_panel nodes
   ├─ second pass: editor.addConnection(...) for side_panel choices
@@ -875,6 +984,18 @@ exportGame()
 ## Runtime Engine (`template.html`)
 
 The exported game is `template.html` (one page, the full runtime). It does **no live evaluation in the editor** — all directives run only when the exported game renders.
+
+**Android / touch readiness (`template.html` + `template_styles.css`):**
+- Viewport `viewport-fit=cover, interactive-widget=resizes-content` (soft keyboard resizes the layout), `color-scheme: dark` (native controls, pickers and scrollbars render dark), `theme-color`.
+- `#app` uses `100dvh` (fallback `100vh`) so the bottom is not hidden behind mobile browser bars; `env(safe-area-inset-*)` padding on the mobile bar, drawer, story bottom, toasts and the side insets (notch / gesture bar / Android 15 edge-to-edge).
+- `#main-panel` / drawer / save modal use `overscroll-behavior: contain` (no pull-to-refresh or scroll chaining); passage text breaks long words.
+- All form controls (`.nf-textfield`, `.nf-textarea`, `.nf-number`, `.nf-dropdown`) share the dark field style.
+- `@media (pointer: coarse)`: 44px+ touch targets (nav, mobile bar ≥48px wide, Save/Load, New Game, slot buttons, fields), 22px checkboxes/radios, 40px radio rows. `:hover` styles live in `@media (hover: hover)` so taps don't leave sticky hover colours.
+- Save/Load slots wrap their buttons under the title on phones; landscape phones (`max-height: 500px`) get trimmed padding; long toasts and dialogue names wrap.
+- `_assetCorsAttr()` returns ` crossorigin="anonymous"` when `window.NF_ASSET_CORS` is set (only in the app's in-app preview, injected by the Rust `build_preview_html`); used on `{img:}` / `{video:}`, and audio tracks set `crossOrigin` the same way. Needed because WebKit won't display `nfasset://` media on an `http://` dev-server page without CORS (see `docs/backend.md` → `nfasset` protocol). Exported games are unaffected.
+- `_mediaSizeStyle(o)` sizes `{img:}` / `{video:}`: both `w`+`h` → `width` + `aspect-ratio` (scales proportionally), only `h` → `object-fit: contain`.
+
+**Mobile HUD (≤640px):** `#side-panel` becomes a slide-over drawer toggled by the sticky `#mobile-bar` (`☰ Status`, back/forward, Save / Load) via `game.toggleMobilePanel()` / `game.closeMobilePanel()` with `#side-panel-backdrop`; `#mobile-menu-btn` keeps `aria-expanded` in sync. The drawer closes automatically when `render()` moves to a *different* passage and when Save / Load opens; in-place re-renders (HUD actions, form inputs) keep it open.
 
 ### Rendering pipeline
 
@@ -1105,19 +1226,19 @@ The walker dispatches on `{live:` (case-insensitive, `/\{live:\s*([^}]*)\}/i`) b
 
 ---
 
-## Performance: `updateConnectionNodes` Monkey-patch
+## Performance: `updateConnectionNodes` per-frame coalescer
 
-The original `editor.updateConnectionNodes` is bound and wrapped with a last-call-wins RAF throttle:
+`app.js` wraps `editor.updateConnectionNodes` so drags and bulk edits route edges at most once per node per frame:
 
 ```
 updateConnectionNodes(nodeId)
   ├─ if isLoading → origUpdate(nodeId) immediately
   └─ else
-       ├─ cancel any pending RAF
-       └─ schedule RAF → on next frame: updatePending = null, origUpdate(nodeId)
+       ├─ pendingNodeIds.add(id)
+       └─ if no frame scheduled: RAF → for each pending id: origUpdate(id); clear set
 ```
 
-**Bypassed during `isLoading`** so that during project/group load every `addConnection` call renders its SVG path synchronously.
+Every requested node is updated (an earlier single-pending-id throttle dropped all but the last node, leaving most edges undrawn after undo/redo). **Bypassed during `isLoading`** so that during project/group load every `addConnection` call renders its SVG path synchronously.
 
 ---
 
@@ -1151,4 +1272,8 @@ Escapes special regex characters.
 
 ### `removeChoiceLink(sourceId, targetSlug)`
 
-Calls `editor.removeSingleConnection(sourceId, targetId, ...)` to remove a connection by slug lookup.
+Takes an undo snapshot, then (1) removes the edge to the loaded target node with `{ notify: true }`; else (2) removes a user-drawn edge to the portal row that holds the slug; else (3) — target in an unloaded/collapsed group, or link only present in markdown — calls `stripChoiceAndLink()` directly and refreshes validation + portal lines. (Previously, unlinking a cross-group choice did nothing.)
+
+### `stripChoiceAndLink(sourceId, slug)` (`node-editor.js`)
+
+Removes every choice of `sourceId` targeting `slug` and its `[text](node:slug)` markdown links (slug is regex-escaped), refreshing the open editor/choices if `sourceId` is selected.

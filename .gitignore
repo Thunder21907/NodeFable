@@ -15,3 +15,7 @@ features/
 Critique.md
 AI Writer/
 converter/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/

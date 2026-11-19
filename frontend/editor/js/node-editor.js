@@ -4,7 +4,22 @@ import { state, ensureNodeData, getNodeTitleBySlug, getNodeSlug, generateUniqueS
 import { snapshotState } from './history.js';
 import { escapeHtml, escapeRegex, showIdError, hideIdError, showToast } from './ui-utils.js';
 import { getEditorValue, setEditorValue, insertAtCursor } from './codemirror-setup.js';
-import { openGroupEditor, populateGroupDropdown, _setupNodeCollapseButton, removeNodeFromGroups } from './group-manager.js';
+import { openGroupEditor, populateGroupDropdown, _setupNodeCollapseButton, removeNodeFromGroups, collapseGroup, deleteGroupFromPortal, _refreshPortalOutputs } from './group-manager.js';
+import { validateDeadEnds, validateOrphans } from './validation.js';
+
+// Remove every choice from `sourceId` that targets `slug`, plus the matching
+// `[text](node:slug)` markdown links, and refresh the open editor if needed.
+export function stripChoiceAndLink(sourceId, slug) {
+    const src = state.nodesData[sourceId];
+    if (!src || !slug) return;
+    if (src.choices) src.choices = src.choices.filter(c => c.targetSlug !== slug);
+    const linkRegex = new RegExp(`\\[[^\\]]*\\]\\(node:${escapeRegex(slug)}\\)`, 'g');
+    src.text = (src.text || '').replace(linkRegex, '').replace(/\n{3,}/g, '\n\n').trim();
+    if (state.selectedNodeId === sourceId) {
+        setEditorValue(src.text);
+        renderChoices(sourceId);
+    }
+}
 
 export function closePassageEditor() {
     state.selectedNodeId = null;
@@ -73,6 +88,17 @@ export function openPassageEditor(nodeId, skipDirtyCheck) {
 
     // Populate group dropdown
     populateGroupDropdown();
+
+    const collapseGroupBtn = document.getElementById('passage-collapse-group-btn');
+    if (collapseGroupBtn) {
+        if (data.group && data.group !== 'side_panel') {
+            collapseGroupBtn.classList.remove('is-hidden');
+            collapseGroupBtn.onclick = () => collapseGroup(data.group);
+        } else {
+            collapseGroupBtn.classList.add('is-hidden');
+            collapseGroupBtn.onclick = null;
+        }
+    }
 
     if (isFnCheckbox) isFnCheckbox.checked = !!data.is_function;
 
@@ -248,6 +274,7 @@ export function updateCurrentNode() {
     const groupSelect = document.getElementById('passage-group');
     if (groupSelect) {
         nodeData.group = groupSelect.value || '';
+        _setupNodeCollapseButton(state.selectedNodeId);
     }
 
     const linkRegex = /\[([^\]]*)\]\(node:([^)]+)\)/g;
@@ -282,8 +309,9 @@ export function updateCurrentNode() {
 export function addNode() {
     snapshotState();
     try {
-        const posX = Math.floor(Math.random() * 400) + 50;
-        const posY = Math.floor(Math.random() * 300) + 50;
+        const idx = Object.keys(state.nodesData).length;
+        const posX = 40 + (idx % 3) * 220;
+        const posY = 120 + Math.floor((idx % 12) / 3) * 100;
         const nodeId = state.editor.addNode(
             'story_node',
             1,
@@ -306,8 +334,12 @@ export function addNode() {
 }
 
 export function deleteCurrentNode() {
-    if (!state.selectedNodeId) return;
+    if (state.selectedNodeId === null || state.selectedNodeId === undefined) return;
     const data = state.nodesData[state.selectedNodeId];
+    if (data && data.isPortal) {
+        deleteGroupFromPortal(state.selectedNodeId);
+        return;
+    }
     if (data && (data.slug === 'side_panel' || data.slug === 'setup')) {
         showToast((data.slug === 'setup' ? 'Setup' : 'Side Panel') + ' is a reserved node and cannot be deleted');
         return;
@@ -316,7 +348,7 @@ export function deleteCurrentNode() {
         snapshotState();
         const slug = getNodeSlug(state.selectedNodeId);
         const group = state.nodesData[state.selectedNodeId] ? state.nodesData[state.selectedNodeId].group || '' : '';
-        state.editor.removeNodeId("node-" + state.selectedNodeId);
+        state.editor.removeNodeId("node-" + state.selectedNodeId, { notify: true });
         delete state.nodesData[state.selectedNodeId];
         if (slug) delete state.slugToNodeId[slug];
         removeNodeFromGroups(slug, group);
@@ -326,6 +358,10 @@ export function deleteCurrentNode() {
 
 export function deleteNodeOverlay(nodeId) {
     const data = state.nodesData[nodeId];
+    if (data && data.isPortal) {
+        deleteGroupFromPortal(nodeId);
+        return;
+    }
     if (data && (data.slug === 'side_panel' || data.slug === 'setup')) {
         showToast((data.slug === 'setup' ? 'Setup' : 'Side Panel') + ' is a reserved node and cannot be deleted');
         return;
@@ -334,7 +370,7 @@ export function deleteNodeOverlay(nodeId) {
         snapshotState();
         const slug = getNodeSlug(nodeId);
         const group = state.nodesData[nodeId] ? state.nodesData[nodeId].group || '' : '';
-        state.editor.removeNodeId("node-" + nodeId);
+        state.editor.removeNodeId("node-" + nodeId, { notify: true });
         delete state.nodesData[nodeId];
         if (slug) delete state.slugToNodeId[slug];
         removeNodeFromGroups(slug, group);
@@ -344,6 +380,18 @@ export function deleteNodeOverlay(nodeId) {
 
 export function editNode(nodeId) {
     openPassageEditor(parseInt(nodeId));
+    const mdTab = document.querySelector('.tab-btn[data-tab="markdown"]');
+    if (mdTab) mdTab.click();
+    setTimeout(() => {
+        const cmContainer = document.getElementById('passage-content-editor');
+        if (state.cmEditor && cmContainer && !cmContainer.classList.contains('is-hidden')) {
+            state.cmEditor.refresh();
+            state.cmEditor.focus();
+        } else {
+            const nativeEl = document.getElementById('passage-content-native');
+            if (nativeEl) nativeEl.focus();
+        }
+    }, 0);
 }
 
 export function startLinking(nodeId) {
@@ -358,27 +406,33 @@ export function cancelLinking() {
     console.log("Linking mode cancelled.");
 }
 
+// Link `linkingFromId` → target. Re-linking two nodes that are already linked
+// removes the link instead (toggle).
 export function handleLinkTargetClick(targetId, inputName) {
-    if (state.linkingFromId === targetId) {
+    const sourceId = state.linkingFromId;
+    if (sourceId === targetId) {
         cancelLinking();
         return;
     }
     const targetData = state.nodesData[targetId];
+    let inClass = inputName || 'input_1';
     if (targetData && targetData.isPortal) {
-        if (inputName && inputName.startsWith('input_')) {
-            // Allow connection to portal input — handled in connectionCreated
-            snapshotState();
-            state.editor.addConnection(state.linkingFromId, targetId, 'output_1', inputName);
+        if (!inputName || !inputName.startsWith('input_')) {
+            alert('Cannot link to a portal group. Load the group first, then create connections to individual nodes.');
             cancelLinking();
             return;
         }
-        alert('Cannot link to a portal group. Load the group first, then create connections to individual nodes.');
-        cancelLinking();
-        return;
+        inClass = inputName;
     }
     snapshotState();
-    state.editor.addConnection(state.linkingFromId, targetId, 'output_1', inputName || 'input_1');
-    console.log(`Linked Node ${state.linkingFromId} -> Node ${targetId}`);
+    if (state.editor.hasConnection(sourceId, targetId, 'output_1', inClass)) {
+        // Existing edge → unlink (connectionRemoved strips choice + markdown).
+        state.editor.removeSingleConnection(sourceId, targetId, 'output_1', inClass, { notify: true });
+    } else {
+        // New edge; if the choice already existed (e.g. cross-group link shown
+        // as a portal line) the connectionCreated handler toggles it off.
+        state.editor.addConnection(sourceId, targetId, 'output_1', inClass, { notify: true });
+    }
     cancelLinking();
 }
 
@@ -510,9 +564,27 @@ export function renderChoices(nodeId) {
 }
 
 export function removeChoiceLink(sourceId, targetSlug) {
+    snapshotState();
+    // 1) Edge to a loaded story node
     const targetId = getNodeIdBySlug(targetSlug);
-    if (targetId === null) return;
-    state.editor.removeSingleConnection(sourceId, targetId, 'output_1', 'input_1');
+    if (targetId !== null && targetId !== undefined
+        && state.editor.removeSingleConnection(sourceId, targetId, 'output_1', 'input_1', { notify: true })) {
+        return;
+    }
+    // 2) User-drawn edge to a portal slug row
+    for (const pid of Object.values(state.portalNodeIds || {})) {
+        const pData = state.nodesData[pid];
+        if (!pData || !pData.portalSlugIds) continue;
+        const idx = pData.portalSlugIds.findIndex(e => (typeof e === 'string' ? e : e.slug_id) === targetSlug);
+        if (idx !== -1 && state.editor.removeSingleConnection(sourceId, pid, 'output_1', 'input_' + (idx + 1), { notify: true })) {
+            return;
+        }
+    }
+    // 3) No canvas edge (target in an unloaded/collapsed group, or link only in markdown)
+    stripChoiceAndLink(sourceId, targetSlug);
+    validateDeadEnds();
+    validateOrphans();
+    _refreshPortalOutputs();
 }
 
 export function renderOnEnter(nodeId) {
@@ -541,9 +613,9 @@ export function renderOnEnter(nodeId) {
                 }).join('')}
             </select>
             <label for="onenter-condition">Condition (optional JS expression)</label>
-            <input type="text" id="onenter-condition" value="${escapeHtml(isEnabled && onEnter.condition ? onEnter.condition : '')}" placeholder="e.g. state.rent_overdue == true" onchange="updateOnEnterField(${nodeId})">
+            <input type="text" id="onenter-condition" value="${escapeHtml(isEnabled && onEnter.condition ? onEnter.condition : '')}" placeholder="e.g. state.rent_overdue == true" oninput="updateOnEnterField(${nodeId})" onchange="updateOnEnterField(${nodeId})">
             <label for="onenter-mutation">Mutation (optional JS statement)</label>
-            <input type="text" id="onenter-mutation" value="${escapeHtml(isEnabled && onEnter.mutation ? onEnter.mutation : '')}" placeholder="e.g. state.triggered = true" onchange="updateOnEnterField(${nodeId})">
+            <input type="text" id="onenter-mutation" value="${escapeHtml(isEnabled && onEnter.mutation ? onEnter.mutation : '')}" placeholder="e.g. state.triggered = true" oninput="updateOnEnterField(${nodeId})" onchange="updateOnEnterField(${nodeId})">
         </div>
     `;
 }

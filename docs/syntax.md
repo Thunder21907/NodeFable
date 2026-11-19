@@ -111,7 +111,7 @@ for refining the Twine/SugarCube → NodeFable converter.
 
 | Directive | Purpose |
 |---|---|
-| `{img: url, w=, h=, alt=}` | Image, max-width 100%, optional pixel size. |
+| `{img: url, w=, h=, alt=}` | Image, max-width 100%, optional pixel size (with both `w` and `h` it scales down keeping the `w:h` ratio). |
 | `{video: url, autoplay, repeat, mute, w=, h=}` | Video player (controls always on). |
 | `{audio: url, channel, loop, volume=, fade=, verb}` | Audio; channels `music`/`sfx`, verbs `stop`/`pause`/`restart`. |
 
@@ -416,7 +416,7 @@ catalogs). Declare in the **Setup node** or the Variables panel `setup` tab:
 {video: assets/rain.mp4, w=480, mute}
 ```
 
-- `{img: url, w=, h=, alt=}` — responsive (`max-width:100%`); `w`/`h` in css px.
+- `{img: url, w=, h=, alt=}` — responsive (`max-width:100%`); `w`/`h` in css px. On narrow screens the image never overflows: with both `w` and `h` it shrinks keeping the `w:h` aspect ratio; with only `h` the picture is letterboxed (`object-fit: contain`) instead of squashed. `{video:}` sizes the same way.
 - `{video: url, autoplay, repeat, mute, w=, h=}` — controls always shown; autoplay defaults
   true but browsers block *audible* autoplay — pass `mute`.
 - `{audio: url, music/sfx, loop, volume=0..1, fade=ms}` — plays on the chosen channel;

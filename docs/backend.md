@@ -1,4 +1,88 @@
-# Backend API Reference
+# Backend Reference
+
+NodeFable has a **fully local Rust backend** in `src-tauri/` (Tauri v2, desktop + Android). It replaces the FastAPI server in `backend/main.py`, which is documented further below as the **legacy** reference until it is removed. The editor talks to whichever backend is present through `frontend/editor/js/api.js` (`isTauri()` → Tauri IPC, otherwise HTTP).
+
+## Rust backend (`src-tauri/`)
+
+### Layout
+
+| File | Role |
+|---|---|
+| `Cargo.toml` | Crate `nodefable` (lib `nodefable_lib`, `staticlib`/`cdylib`/`rlib` for Android). Deps: `tauri 2`, `serde`, `serde_json` (`preserve_order`), `tempfile`, `zip 2` (deflate), `regex`, `percent-encoding`, `mime_guess`. |
+| `tauri.conf.json` | `identifier: com.nodefable.app`, `frontendDist: ../frontend/editor` (no build step), window `main` 1400×900 (min 360×480), `csp: null`. |
+| `capabilities/default.json` | `core:default` for window `main` (app commands need no plugin permissions). |
+| `src/main.rs` | Desktop entry → `nodefable_lib::run()`. |
+| `src/lib.rs` | `run()` (also the Android `mobile_entry_point`): data dir, `nfasset` protocol, command registration, Linux WebKit workaround. |
+| `src/models.rs` | Serde mirrors of `backend/schemas/project.py` (`NodeData`, `ChoiceLink`, `OnEnter`, `SaveRequest`, `Project`, `SaveEntry`, `AssetEntry`). Field order / `null`s / defaults match Pydantic `model_dump`. |
+| `src/storage.rs` | All storage logic (pure functions over a data-dir `root`): names & paths, legacy migration, manifest loading, save, assets, story HTML, zip export. `ApiError { status, detail }` mirrors FastAPI's status codes and `detail` messages. |
+| `src/commands.rs` | `#[tauri::command]` wrappers (async, so file I/O never blocks the UI thread). |
+| `src/protocol.rs` | `nfasset://` asset server with HTTP Range support. |
+| `tests/storage.rs` | Integration tests (`cargo test`). |
+| `examples/nfcli.rs` | Dev-only CLI over `storage` (parity checks); not part of the app. |
+
+### Data directory
+
+`<local data dir>/nodefable/data/<Project>/` — `~/.local/share/nodefable/data` on Linux (`$XDG_DATA_HOME` respected), `%LOCALAPPDATA%\nodefable\data` on Windows, `~/Library/Application Support/nodefable/data` on macOS, the app's internal files dir on Android. Override with **`NODEFABLE_DATA_DIR`** (tests / pointing the app at another folder). The on-disk format (`manifest.json` + `groups/*.json` + `assets/`) is identical to the Python backend's, so project folders can be copied between them.
+
+### Commands (IPC) ↔ legacy HTTP routes
+
+| Command (args from `api.js`) | Returns | Legacy route |
+|---|---|---|
+| `list_saves()` | `[{name, mtime}]` newest first | `GET /api/saves` |
+| `load_manifest(name)` | manifest (legacy `project.json` migrated, orphan group files adopted, flat `slug_ids` upgraded) | `GET /api/load/manifest` |
+| `load_project(name, groups?)` | `{variables, setup, nodes}` (nodes validated as `NodeData`; `groups` = list, de-duplicated; empty/absent = all) | `GET /api/load` |
+| `save_project(req)` | `{status, name}`; name 1–100 chars, top-level variable/setup values may not be `null` (422) | `POST /api/save` |
+| `list_assets(name)` | asset tree (folders first, sorted) | `GET /api/assets/{name}` |
+| `upload_asset` | `{status, filename, url, rel_path}` — **raw binary IPC body** with percent-encoded headers `x-nf-name`, `x-nf-filename`, `x-nf-folder` (a JSON body `{name, filename, folder, bytes}` is also accepted) | `POST …/upload` |
+| `create_folder(name, path)` | `{status, path}` | `POST …/folder` |
+| `rename_asset(name, path, newName)` | `{status}` (409 if target exists) | `PUT …/rename` |
+| `move_asset(name, fromPath, toPath)` / `copy_asset(…)` | `{status}` | `PUT …/move`, `POST …/copy` |
+| `delete_asset(name, filepath)` | `{status, deleted_count}` | `DELETE …/{path}` |
+| `build_preview_html(name)` | full game HTML (string) with `<base href>` = the project's `nfasset` URL; shown in the editor's preview overlay via `srcdoc` | `GET /api/preview` + `/api/preview-file` |
+| `export_project_zip(name, dest?)` | `{status, path}`; default `~/Downloads/<Project>.zip` on desktop, `<app data>/nodefable/exports/` otherwise | `GET /api/export/{name}` |
+
+Errors reject with the `detail` string (e.g. `Project 'x' not found`); `api.js`'s `invokeTauri` wraps it in an `Error`.
+
+### `nfasset` protocol
+
+Serves `<data>/<Project>/assets/<path>` for editor thumbnails and the preview. URL form depends on the platform (Tauri custom-scheme rules): `nfasset://localhost/<Project>/assets/<path>` on Linux/macOS, `http://nfasset.localhost/<Project>/assets/<path>` on Windows/Android. `api.resolveEditorAssetUrl` uses Tauri's `convertFileSrc(path, 'nfasset')`, which percent-encodes the whole path into one segment — the handler decodes both forms. Paths go through `resolve_asset_path`, folders/missing files → 404, traversal → 400. `Range: bytes=…` → 206 (open-ended ranges served in 4 MiB chunks, so large audio/video stream and seek without loading whole files); `Access-Control-Allow-Origin: *` and exposed `Content-Range` / `Content-Length` / `Accept-Ranges` (the editor origin differs from the asset origin).
+
+**Media must be requested in CORS mode.** Under `cargo tauri dev` the editor page is served from `http://127.0.0.1:1430`, and WebKitGTK refuses a plain (no-CORS) `<img>`/`<video>`/`<audio>` load from an `http://` page to the `nfasset://` scheme (the element shows an empty/black box; `fetch()` of the same URL works). A CORS-mode request succeeds because the scheme answers `Access-Control-Allow-Origin: *`. So: the editor's asset thumbnails carry `crossorigin="anonymous"`, and `build_preview_html` injects `<script>window.NF_ASSET_CORS = true;</script>` before `</head>`, which makes the runtime add `crossorigin="anonymous"` to `{img:}` / `{video:}` and set `crossOrigin` on `{audio:}` tracks. Exported games never get the flag (a standalone `index.html` opened from `file://` must keep plain media requests).
+
+### Behaviour vs. the Python backend
+
+Verified identical on all 12 projects in `backend/data` (212 strict comparisons — manifests, full and per-group loads, story payloads, asset trees, every file written by a save round-trip, exported zips). Deliberate differences, all stricter/safer:
+- asset paths are validated per component (`..`, absolute and drive paths rejected) and must stay inside `assets/` after resolving symlinks;
+- all writes (JSON and uploads) are atomic (temp file in the same folder + rename); the zip export streams assets from disk and stores already-compressed media;
+- deleting a symlinked folder removes only the link; copying a folder skips nested symlinks; copying/moving a folder into itself is rejected (400);
+- duplicate ids in the save request's `groups` metadata are written once; adopted orphan group files are appended in name order;
+- the template stylesheet is inlined *before* the story JSON is injected (story text can't match the `<link>` marker); `</` in story JSON is escaped as `<\/`; zip entries always use `/`.
+
+### Platform notes
+
+- **Linux:** `run()` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` (unless already set) — WebKitGTK's DMA-BUF renderer crashes on Wayland with NVIDIA ("Gdk Error 71 (Protocol error)"), and the window never appears.
+- **Android:** same crate (`#[cfg_attr(mobile, tauri::mobile_entry_point)]`); the Android project is generated by `cargo tauri android init` into `src-tauri/gen/android`.
+
+### Development
+
+Use `./tauri-manager.sh` from the repo root (interactive menu, or `./tauri-manager.sh dev|test|verify|deb|rpm|appimage|android|android-x86|android-release|install|phone|data|…`). Android commands source `~/Android/env.sh` (full JDK with `javac`, `ANDROID_HOME`, `NDK_HOME`) and run `cargo tauri android init` if `src-tauri/gen/android` is missing; release APKs are signed via `tools/android-signing.sh` (reads `~/Android/keystore.properties` at build time — no secrets in the repo). `scripts/generate_perf_project.js` writes its 1000-node test project into the same data folder.
+
+Plain cargo equivalents:
+
+```sh
+cd src-tauri
+cargo test                      # storage + protocol tests
+cargo run                       # desktop app (debug)
+NODEFABLE_DATA_DIR=/some/folder cargo run       # use another projects folder
+cargo tauri dev | build         # with tauri-cli (bundles, Android: cargo tauri android dev|build)
+```
+
+---
+
+# Legacy: Python FastAPI backend (`backend/main.py`)
+
+> Kept for reference until removal. The Rust backend above is the replacement.
+
 
 **File:** `backend/main.py`  
 **Framework:** FastAPI  
@@ -333,12 +417,12 @@ GET /api/assets/{name}/{filepath:path}
 | Param | Description |
 |-------|-------------|
 | `name` | Project folder name |
-| `filepath` | Relative path within assets (e.g. `bg/forest.png`) |
+| `filepath` | Relative path within assets (e.g. `bg/forest.png`). The literal path is tried first; if it is not a file and starts with `assets/`, the prefix is stripped and retried (so relative `assets/bg/forest.png` URLs work while a real sub-folder named `assets/` stays reachable). |
 
 **Response (200):** Raw file bytes (`FileResponse`).
 
 **Error handling:**
-- `404` — `"Asset not found"`
+- `404` — `"Asset not found"` (also for folders — only regular files are served)
 - `400` — `"Invalid path"` if path escapes `assets/` directory
 
 Uses `{filepath:path}` FastAPI path converter to capture multi-segment paths. Route must be defined after all other `/api/assets/{name}/...` routes to avoid conflicts.

@@ -784,12 +784,14 @@ async def delete_asset(name: str, filepath: str):
 async def get_asset(name: str, filepath: str):
     safe = safe_name(name)
     assets_dir = os.path.join(DATA_DIR, safe, "assets")
-    safe_path = filepath.strip('/')
-    target = _resolve_safe_asset_path(assets_dir, safe_path)
-    if not os.path.exists(target) and safe_path.startswith("assets/"):
-        alt_path = safe_path[len("assets/"):]
-        target = _resolve_safe_asset_path(assets_dir, alt_path)
-    if not os.path.exists(target):
+    filepath = filepath.strip('/')
+    # Try the literal path first so a real sub-folder named "assets/" still
+    # resolves; fall back to stripping a leading "assets/" (relative asset
+    # URLs like "assets/bg/forest.png" requested through this endpoint).
+    target = _resolve_safe_asset_path(assets_dir, filepath)
+    if not os.path.isfile(target) and filepath.startswith("assets/"):
+        target = _resolve_safe_asset_path(assets_dir, filepath[len("assets/"):])
+    if not os.path.isfile(target):
         raise HTTPException(status_code=404, detail="Asset not found")
     return FileResponse(target)
 

@@ -190,3 +190,22 @@ test('4. normalizeLegacyAssetUrls rewrites legacy /api/assets/<proj>/ URLs in-pl
     );
     assert.strictEqual(payload.nodes[0].on_enter.bgm, 'assets/intro.mp4');
 });
+
+test('5. Tauri mode uses convertFileSrc(…, "nfasset") when available (Windows/Android URL form)', () => {
+    const calls = [];
+    const env = loadApiAndAssetHelpers({
+        __TAURI_INTERNALS__: {
+            invoke: () => Promise.resolve(null),
+            // Tauri's real implementation on Windows/Android:
+            convertFileSrc: (p, proto) => { calls.push([p, proto]); return 'http://' + proto + '.localhost/' + encodeURIComponent(p); },
+        },
+    });
+    assert.strictEqual(
+        env.resolveEditorAssetUrl('My Game', 'assets/bg/dark forest.png'),
+        'http://nfasset.localhost/My%20Game%2Fassets%2Fbg%2Fdark%20forest.png'
+    );
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(calls)), [['My Game/assets/bg/dark forest.png', 'nfasset']]);
+    // Fallback form encodes each path segment.
+    const fallback = loadApiAndAssetHelpers({ __TAURI_INTERNALS__: { invoke: () => Promise.resolve(null) } });
+    assert.strictEqual(fallback.resolveEditorAssetUrl('My Game', 'bg/dark forest.png'), 'nfasset://localhost/My%20Game/assets/bg/dark%20forest.png');
+});

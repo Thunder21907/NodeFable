@@ -177,7 +177,7 @@ export function renderVariables() {
                     <div class="var-value">${escapeHtml(display)}</div>
                 </div>
                 <div class="var-actions">
-                    <button class="var-delete-btn danger" data-varname="${escapeHtml(name)}" data-scope="${scope}">${SVG_CLOSE}</button>
+                    <button class="var-delete-btn danger" data-varname="${escapeHtml(name)}" data-scope="${scope}" aria-label="Delete variable ${escapeHtml(name)}">${SVG_CLOSE}</button>
                 </div>
             </div>
         `;
